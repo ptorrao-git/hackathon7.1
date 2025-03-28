@@ -1,0 +1,80 @@
+database:
+    - parse info into db
+    - watch history
+    - movies (name - description - release date - studio - director - cast*1 - categories - run time)
+    - watch list*2
+    - favorite movies shows list
+    - liked categories
+    - liked movies/series from the swipe # to decide  probably goes to a watch list
+    - SQL
+
+frontend:
+    - image wheal trailer - conta premium youtube *3
+    - swipe function -> tinder wanna be
+    - o que usar #AskJoana #ProbsReactNative
+
+user watched list match:
+    - like if both have like over 50% match on the watched movies recommend the others?
+
+
+
+ai models:
+    -
+
+
+
+
+*1 (name - movies/series)
+*2 movies/shows to watch
+*3 show by main category / https://www.npmjs.com/package/react-multi-carousel | https://www.freecodecamp.org/news/how-to-build-an-image-carousel-component/
+
+
+
+
+
+
+
+// code to test ai: by filipe
+
+from sentence_transformers import SentenceTransformer
+from sklearn.metrics.pairwise import cosine_similarity
+import numpy as np
+
+# Load the SBERT model
+model = SentenceTransformer('sentence-transformers/paraphrase-MiniLM-L6-v2')
+
+# Example movie metadata
+movies = [
+    "Title: The Matrix | Description: A computer hacker learns from mysterious rebels about the true nature of his reality and his role in the war against its controllers. | Cast: Keanu Reeves, Laurence Fishburne | Genre: Action, Sci-Fi | Runtime: 136 minutes | Director: The Wachowskis",
+    "Title: Titanic | Description: A seventeen-year-old aristocrat falls in love with a kind but poor artist aboard the luxurious, ill-fated R.M.S. Titanic. | Cast: Leonardo DiCaprio, Kate Winslet | Genre: Drama, Romance | Runtime: 195 minutes | Director: James Cameron",
+    "Title: Inception | Description: A thief who enters the dreams of others to steal secrets from their subconscious is given the inverse task of planting an idea into the mind of a CEO. | Cast: Leonardo DiCaprio, Joseph Gordon-Levitt | Genre: Action, Adventure, Sci-Fi | Runtime: 148 minutes | Director: Christopher Nolan"
+]
+
+# Generate embeddings for the combined movie metadata
+movie_embeddings = model.encode(movies)
+
+# Example watch history (user watched these movies)
+user_watched = [
+    "Title: The Matrix | Description: A computer hacker learns from mysterious rebels about the true nature of his reality and his role in the war against its controllers. | Cast: Keanu Reeves, Laurence Fishburne | Genre: Action, Sci-Fi | Runtime: 136 minutes | Director: The Wachowskis",
+    "Title: Inception | Description: A thief who enters the dreams of others to steal secrets from their subconscious is given the inverse task of planting an idea into the mind of a CEO. | Cast: Leonardo DiCaprio, Joseph Gordon-Levitt | Genre: Action, Adventure, Sci-Fi | Runtime: 148 minutes | Director: Christopher Nolan"
+]
+
+# Generate embeddings for the user's watched movies
+user_embeddings = model.encode(user_watched)
+
+# Create a user profile by averaging the embeddings of the movies they've watched
+user_profile = np.mean(user_embeddings, axis=0)
+
+# Calculate cosine similarity between the user profile and all movie embeddings
+similarities = cosine_similarity([user_profile], movie_embeddings)
+
+# Get the indices of the top 5 most similar movies
+top_movie_indices = similarities.argsort()[0][-5:][::-1]
+
+# Get the top 5 movie recommendations
+top_recommendations = [movies[i] for i in top_movie_indices]
+print("Recommended Movies:", top_recommendations)
+
+
+pip install sentence-transformers
+pip install scikit-learn
