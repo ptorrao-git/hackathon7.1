@@ -34,5 +34,5 @@ Metrics:
 
 
 Feedback:
-- Dataset(find one.)
+- Dataset(find one)
 - Evaluation (how to do it)
