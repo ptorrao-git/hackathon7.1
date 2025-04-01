@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useState, useCallback, useEffect, useContext, useRef } from 'react';
 import { NavigationContainer } from '@react-navigation/native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createStackNavigator } from '@react-navigation/stack';
@@ -6,6 +6,7 @@ import { View, Text, StyleSheet, TextInput, FlatList, TouchableOpacity, Image, K
 import Icon from 'react-native-vector-icons/Ionicons';
 import TinderCard from 'react-tinder-card';
 import { getMovies } from './src/services/movieService';
+import IconFeather from 'react-native-vector-icons/Feather';
 
 // First, install the database driver
 // For MySQL: npm install mysql2
@@ -197,8 +198,9 @@ const MovieModal = ({ movie, visible, onClose, onAddToList, isInWatchList }) => 
   );
 };
 
+// The MovieImage component
 const MovieImage = ({ movie }) => {
-  const [imgSrc, setImgSrc] = useState(movie.image);
+  const [imgSrc, setImgSrc] = useState(movie?.image || '');
 
   const handleImageError = () => {
     if (imgSrc.includes('original')) {
@@ -208,7 +210,7 @@ const MovieImage = ({ movie }) => {
     } else if (imgSrc.includes('w342')) {
       setImgSrc(imgSrc.replace('w342', 'w185'));
     } else {
-      setImgSrc(`https://placehold.co/400x600/1e1e1e/FFF?text=${encodeURIComponent(movie.title)}`);
+      setImgSrc(`https://placehold.co/400x600/1e1e1e/FFF?text=${encodeURIComponent(movie?.title || 'Movie')}`);
     }
   };
 
@@ -221,51 +223,76 @@ const MovieImage = ({ movie }) => {
   );
 };
 
-// Replace the existing HomeScreen with this enhanced version
-const HomeScreen = ({ navigation }) => {
-  const [selectedMovie, setSelectedMovie] = useState(null);
-  const [modalVisible, setModalVisible] = useState(false);
+// First, create a movie context at the top level
+const MovieContext = React.createContext();
+
+// Then create a provider component
+const MovieProvider = ({ children }) => {
+  const [allMovies, setAllMovies] = useState([]);
+  const [featured, setFeatured] = useState(null);
+  const [categories, setCategories] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState(null);
-  // Use CATEGORIES as initial state
-  const [categories, setCategories] = useState(CATEGORIES);
+
+  useEffect(() => {
+    fetchMovies();
+  }, []);
 
   const fetchMovies = async () => {
     try {
       setIsLoading(true);
-      console.log('Frontend: Starting API request');
+      setError(null);
       
       const response = await fetch('http://localhost:3001/api/movies');
-      console.log('Frontend: Received response status:', response.status);
+      if (!response.ok) {
+        throw new Error(`HTTP error! Status: ${response.status}`);
+      }
       
       const data = await response.json();
-      console.log('Frontend: Received data:', JSON.stringify(data, null, 2));
+      console.log('API Response:', data);
       
-      if (data.categories) {
-        console.log('Frontend: Setting categories with length:', data.categories.length);
+      if (data.featured) {
+        setFeatured(data.featured);
+      }
+      
+      if (data.categories && Array.isArray(data.categories)) {
         setCategories(data.categories);
+        
+        // Collect all movies from all categories for discovery
+        const movies = data.categories.flatMap(category => category.data);
+        setAllMovies(movies);
       } else {
-        console.log('Frontend: No categories in response, using default CATEGORIES');
-        setCategories(CATEGORIES);
+        setError('Invalid data format from API');
       }
     } catch (err) {
-      console.error('Frontend Error:', err);
-      setError('Failed to fetch movies');
-      console.log('Frontend: Using fallback CATEGORIES');
-      setCategories(CATEGORIES);
+      console.error('Error fetching movies:', err);
+      setError('Failed to load movies. Please try again later.');
     } finally {
       setIsLoading(false);
     }
   };
 
-  // Add useEffect debug
-  useEffect(() => {
-    console.log('Frontend: Component mounted');
-    fetchMovies();
-  }, []);
+  return (
+    <MovieContext.Provider 
+      value={{ 
+        allMovies, 
+        featured, 
+        categories, 
+        isLoading, 
+        error, 
+        fetchMovies 
+      }}
+    >
+      {children}
+    </MovieContext.Provider>
+  );
+};
 
-  // Add render debug
-  console.log('Frontend: Rendering with categories:', categories?.length);
+// Replace the existing HomeScreen with this enhanced version
+const HomeScreen = ({ navigation }) => {
+  const { featured, categories, isLoading, error, fetchMovies } = useContext(MovieContext);
+  const [modalVisible, setModalVisible] = useState(false);
+  const [selectedMovie, setSelectedMovie] = useState(null);
 
   const handleMoviePress = (movie) => {
     setSelectedMovie(movie);
@@ -276,6 +303,19 @@ const HomeScreen = ({ navigation }) => {
     return (
       <View style={styles.loadingContainer}>
         <ActivityIndicator size="large" color="#E50914" />
+        <Text style={styles.loadingText}>Loading movies...</Text>
+      </View>
+    );
+  }
+
+  if (error) {
+    return (
+      <View style={styles.errorContainer}>
+        <IconFeather name="alert-circle" size={50} color="#E50914" />
+        <Text style={styles.errorText}>{error}</Text>
+        <TouchableOpacity style={styles.retryButton} onPress={fetchMovies}>
+          <Text style={styles.retryButtonText}>Retry</Text>
+        </TouchableOpacity>
       </View>
     );
   }
@@ -283,38 +323,36 @@ const HomeScreen = ({ navigation }) => {
   return (
     <ScrollView style={styles.homeContainer}>
       {/* Featured Content */}
-      <View style={styles.featuredContainer}>
-        <MovieImage movie={FEATURED} />
-        <View style={styles.featuredOverlay}>
-          <Text style={styles.featuredTitle}>{FEATURED.title}</Text>
-          <Text style={styles.featuredDescription}>
-            {FEATURED.description}
-          </Text>
-          <View style={styles.buttonContainer}>
-            <TouchableOpacity style={styles.playButton}>
-              <Icon name="play" size={20} color="#000" />
-              <Text style={styles.playButtonText}>Play</Text>
-            </TouchableOpacity>
-            <TouchableOpacity 
-              style={styles.myListButton}
-              onPress={() => navigation.navigate('Profile')}
-            >
-              <Icon name="list" size={20} color="#FFF" />
-              <Text style={styles.myListButtonText}>My List</Text>
-            </TouchableOpacity>
+      {featured && (
+        <View style={styles.featuredContainer}>
+          <MovieImage movie={featured} />
+          <View style={styles.featuredOverlay}>
+            <Text style={styles.featuredTitle}>{featured.title}</Text>
+            <Text style={styles.featuredDescription}>
+              {featured.description}
+            </Text>
+            <View style={styles.buttonContainer}>
+              <TouchableOpacity style={styles.playButton}>
+                <Icon name="play" size={20} color="#000" />
+                <Text style={styles.playButtonText}>Play</Text>
+              </TouchableOpacity>
+              <TouchableOpacity 
+                style={styles.myListButton}
+                onPress={() => navigation.navigate('Profile')}
+              >
+                <Icon name="list" size={20} color="#FFF" />
+                <Text style={styles.myListButtonText}>My List</Text>
+              </TouchableOpacity>
+            </View>
           </View>
         </View>
-      </View>
+      )}
 
       {/* Categories */}
       {categories.map(category => (
         <View key={category.id} style={styles.moviesSection}>
           <Text style={styles.sectionTitle}>{category.title}</Text>
-          <ScrollView 
-            horizontal 
-            showsHorizontalScrollIndicator={false}
-            style={styles.movieRow}
-          >
+          <ScrollView horizontal showsHorizontalScrollIndicator={false}>
             {category.data.map((movie) => (
               <TouchableOpacity 
                 key={movie.id}
@@ -333,11 +371,6 @@ const HomeScreen = ({ navigation }) => {
         movie={selectedMovie}
         visible={modalVisible}
         onClose={() => setModalVisible(false)}
-        onAddToList={(movie) => {
-          // Add to watch list logic here
-          setModalVisible(false);
-        }}
-        isInWatchList={false}
       />
     </ScrollView>
   );
@@ -345,28 +378,87 @@ const HomeScreen = ({ navigation }) => {
 
 // Replace the simple SearchScreen with this new version
 const SearchScreen = () => {
-  const [searchQuery, setSearchQuery] = React.useState('');
-  const [filteredShows, setFilteredShows] = React.useState(SAMPLE_SHOWS);
-
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchResults, setSearchResults] = useState([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState(null);
+  const [hasSearched, setHasSearched] = useState(false);
+  
+  // Debounce search to avoid too many API calls
+  const debouncedSearch = useCallback(
+    debounce((term) => {
+      if (term.trim().length >= 2) {
+        performSearch(term);
+      } else if (term.trim() === '') {
+        setSearchResults([]);
+        setHasSearched(false);
+      }
+    }, 500),
+    []
+  );
+  
+  const performSearch = async (term) => {
+    setIsLoading(true);
+    setError(null);
+    setHasSearched(true);
+    
+    try {
+      const url = `http://localhost:3001/api/search?term=${encodeURIComponent(term)}`;
+      console.log('Fetching from:', url);
+      
+      const response = await fetch(url);
+      
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('Search API error:', response.status, errorText);
+        throw new Error(`HTTP error! Status: ${response.status}, Details: ${errorText}`);
+      }
+      
+      const data = await response.json();
+      console.log('Search results:', data);
+      
+      setSearchResults(data.results || []);
+    } catch (err) {
+      console.error('Search error details:', err);
+      setError(`Failed to search: ${err.message}`);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+  
   const handleSearch = (text) => {
     setSearchQuery(text);
-    const filtered = SAMPLE_SHOWS.filter(show =>
-      show.title.toLowerCase().includes(text.toLowerCase())
-    );
-    setFilteredShows(filtered);
+    debouncedSearch(text);
   };
-
+  
+  const clearSearch = () => {
+    setSearchQuery('');
+    setSearchResults([]);
+    setHasSearched(false);
+  };
+  
   const renderShow = ({ item }) => (
     <TouchableOpacity style={styles.showItem}>
-      <Image 
+      <ImageWithFallback 
         source={{ uri: item.image }} 
         style={styles.showImage}
         resizeMode="cover"
       />
       <Text style={styles.showTitle}>{item.title}</Text>
+      {item.year && <Text style={styles.showYear}>{item.year}</Text>}
     </TouchableOpacity>
   );
-
+  
+  // Function to help debounce search requests
+  function debounce(func, wait) {
+    let timeout;
+    return function(...args) {
+      const context = this;
+      clearTimeout(timeout);
+      timeout = setTimeout(() => func.apply(context, args), wait);
+    };
+  }
+  
   return (
     <View style={styles.searchContainer}>
       <View style={styles.searchBarContainer}>
@@ -381,7 +473,7 @@ const SearchScreen = () => {
         />
         {searchQuery.length > 0 && (
           <TouchableOpacity 
-            onPress={() => handleSearch('')}
+            onPress={clearSearch}
             style={styles.clearButton}
           >
             <Icon name="close-circle" size={20} color="gray" />
@@ -389,18 +481,41 @@ const SearchScreen = () => {
         )}
       </View>
       
-      {filteredShows.length > 0 ? (
+      {isLoading ? (
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color="#E50914" />
+          <Text style={styles.loadingText}>Searching...</Text>
+        </View>
+      ) : error ? (
+        <View style={styles.errorContainer}>
+          <IconFeather name="alert-circle" size={50} color="#E50914" />
+          <Text style={styles.errorText}>{error}</Text>
+          <TouchableOpacity 
+            style={styles.retryButton} 
+            onPress={() => performSearch(searchQuery)}
+          >
+            <Text style={styles.retryButtonText}>Retry</Text>
+          </TouchableOpacity>
+        </View>
+      ) : searchResults.length > 0 ? (
         <FlatList
-          data={filteredShows}
+          data={searchResults}
           renderItem={renderShow}
-          keyExtractor={item => item.id}
+          keyExtractor={(item, index) => `${item.id || index}`}
           numColumns={2}
           contentContainerStyle={styles.resultsList}
         />
-      ) : (
+      ) : hasSearched ? (
         <View style={styles.noResults}>
+          <Icon name="search-outline" size={50} color="#666" />
           <Text style={styles.noResultsText}>
             No results found for "{searchQuery}"
+          </Text>
+        </View>
+      ) : (
+        <View style={styles.emptySearch}>
+          <Text style={styles.emptySearchText}>
+            Type at least 2 characters to search
           </Text>
         </View>
       )}
@@ -533,119 +648,269 @@ const SWIPE_MOVIES = [
   }
 ];
 
-const DiscoverScreen = () => {
-  const { addToWatchList } = React.useContext(WatchListContext);
+const DiscoverScreen = ({ navigation }) => {
+  const { allMovies, isLoading, error, fetchMovies } = useContext(MovieContext);
   const [currentIndex, setCurrentIndex] = useState(0);
-  const position = new Animated.ValueXY();
+  const { addToWatchList } = useContext(WatchListContext);
+  const [discoverMovies, setDiscoverMovies] = useState([]);
+  const [lastDirection, setLastDirection] = useState(null);
+  
+  // Refs for handling card movement
+  const panResponderRef = useRef(null);
+  const position = useRef(new Animated.ValueXY()).current;
+  const cardOpacity = useRef(new Animated.Value(1)).current;
+  const nextCardScale = useRef(new Animated.Value(0.9)).current;
 
-  const panResponder = PanResponder.create({
-    onStartShouldSetPanResponder: () => true,
-    onPanResponderMove: (_, gesture) => {
-      position.setValue({ x: gesture.dx, y: gesture.dy });
-    },
-    onPanResponderRelease: (_, gesture) => {
-      if (gesture.dx > 120) {
-        swipeRight();
-      } else if (gesture.dx < -120) {
-        swipeLeft();
-      } else {
-        resetPosition();
-      }
+  useEffect(() => {
+    // Load movies when component mounts
+    if (allMovies && allMovies.length > 0) {
+      // Shuffle and prepare movies
+      const shuffled = [...allMovies].sort(() => Math.random() - 0.5);
+      setDiscoverMovies(shuffled);
+      console.log(`Loaded ${shuffled.length} movies for discover`);
+    } else {
+      // Fallback to sample movies
+      setDiscoverMovies(SWIPE_MOVIES);
+      console.log("Using fallback movies");
     }
-  });
 
+    // Reset position when currentIndex changes
+    resetPosition();
+  }, [allMovies]);
+
+  useEffect(() => {
+    // Create the pan responder for drag gestures
+    panResponderRef.current = PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onPanResponderMove: (_, gesture) => {
+        position.setValue({ x: gesture.dx, y: gesture.dy });
+      },
+      onPanResponderRelease: (_, gesture) => {
+        // Determine swipe direction based on velocity and distance
+        if (gesture.dx > 120) {
+          swipeRight();
+        } else if (gesture.dx < -120) {
+          swipeLeft();
+        } else {
+          resetPosition();
+        }
+      }
+    });
+  }, [currentIndex, discoverMovies]);
+
+  // Reset the card position
   const resetPosition = () => {
     Animated.spring(position, {
       toValue: { x: 0, y: 0 },
-      useNativeDriver: false
+      friction: 5,
+      useNativeDriver: false,
+    }).start();
+    
+    Animated.timing(cardOpacity, {
+      toValue: 1,
+      duration: 300,
+      useNativeDriver: false,
+    }).start();
+    
+    Animated.spring(nextCardScale, {
+      toValue: 0.9,
+      friction: 5,
+      useNativeDriver: false,
     }).start();
   };
 
+  // Swipe the card left
   const swipeLeft = () => {
     Animated.timing(position, {
       toValue: { x: -500, y: 0 },
-      duration: 250,
-      useNativeDriver: false
-    }).start(() => nextCard());
+      duration: 300,
+      useNativeDriver: false,
+    }).start(() => {
+      swiped('left');
+      resetPosition();
+    });
   };
 
+  // Swipe the card right
   const swipeRight = () => {
-    const currentMovie = SWIPE_MOVIES[currentIndex];
-    addToWatchList(currentMovie);
     Animated.timing(position, {
       toValue: { x: 500, y: 0 },
-      duration: 250,
-      useNativeDriver: false
-    }).start(() => nextCard());
+      duration: 300,
+      useNativeDriver: false,
+    }).start(() => {
+      swiped('right');
+      resetPosition();
+    });
   };
 
-  const nextCard = () => {
-    position.setValue({ x: 0, y: 0 });
-    setCurrentIndex(prev => prev + 1);
+  const swiped = (direction) => {
+    console.log(`Swiped ${direction}`);
+    setLastDirection(direction);
+    
+    // Add to watchlist if swiped right
+    if (direction === 'right' && currentIndex < discoverMovies.length) {
+      const movie = discoverMovies[currentIndex];
+      console.log('Adding to watchlist:', movie.title);
+      addToWatchList(movie);
+    }
+    
+    // Move to next card
+    setCurrentIndex(prevIndex => prevIndex + 1);
+    
+    // If we're near the end of our cards, load more
+    if (currentIndex >= discoverMovies.length - 3 && allMovies.length > 0) {
+      console.log("Near the end, loading more movies");
+      const moreMovies = [...allMovies].sort(() => Math.random() - 0.5);
+      setDiscoverMovies(prevMovies => [...prevMovies, ...moreMovies.slice(0, 10)]);
+    }
   };
 
+  // Card rotation based on drag position
   const rotate = position.x.interpolate({
     inputRange: [-300, 0, 300],
-    outputRange: ['-30deg', '0deg', '30deg']
+    outputRange: ['-30deg', '0deg', '30deg'],
+    extrapolate: 'clamp',
   });
 
-  const renderCard = () => {
-    if (currentIndex >= SWIPE_MOVIES.length) {
-      return (
-        <View style={styles.card}>
-          <Text style={styles.noMoreCards}>No more movies!</Text>
-        </View>
-      );
-    }
-
-    const movie = SWIPE_MOVIES[currentIndex];
-    return (
-      <Animated.View
-        {...panResponder.panHandlers}
-        style={[styles.card, {
-          transform: [
-            { translateX: position.x },
-            { translateY: position.y },
-            { rotate: rotate }
-          ]
-        }]}
-      >
-        <Image
-          source={{ uri: movie.image }}
-          style={styles.cardImage}
-          resizeMode="cover"
-        />
-        <View style={styles.cardContent}>
-          <Text style={styles.cardTitle}>{movie.title}</Text>
-          <View style={styles.cardMetadata}>
-            <Text style={styles.cardYear}>{movie.year}</Text>
-            <Text style={styles.cardRating}>★ {movie.rating}</Text>
-          </View>
-          <Text style={styles.cardDescription}>{movie.description}</Text>
-        </View>
-      </Animated.View>
-    );
+  // Transform style for the current card
+  const cardStyle = {
+    transform: [
+      { translateX: position.x },
+      { translateY: position.y },
+      { rotate: rotate }
+    ],
+    opacity: cardOpacity,
   };
 
-  return (
-    <View style={styles.container}>
-      <View style={styles.cardContainer}>
-        {renderCard()}
+  // Transform style for the next card
+  const nextCardStyle = {
+    transform: [
+      { scale: nextCardScale },
+    ],
+    opacity: nextCardScale,
+  };
+
+  if (isLoading) {
+    return (
+      <View style={styles.loadingContainer}>
+        <ActivityIndicator size="large" color="#E50914" />
+        <Text style={styles.loadingText}>Loading movies to discover...</Text>
       </View>
+    );
+  }
+
+  if (error) {
+    return (
+      <View style={styles.errorContainer}>
+        <Icon name="alert-circle" size={50} color="#E50914" />
+        <Text style={styles.errorText}>{error}</Text>
+        <TouchableOpacity style={styles.retryButton} onPress={fetchMovies}>
+          <Text style={styles.retryButtonText}>Retry</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
+
+  if (discoverMovies.length === 0) {
+    return (
+      <View style={styles.emptyContainer}>
+        <Icon name="film" size={50} color="#E50914" />
+        <Text style={styles.emptyText}>No movies available for discovery</Text>
+      </View>
+    );
+  }
+
+  // End of cards
+  if (currentIndex >= discoverMovies.length) {
+    return (
+      <View style={styles.emptyContainer}>
+        <Icon name="checkmark-circle" size={50} color="#4CAF50" />
+        <Text style={styles.emptyText}>You've seen all movies!</Text>
+        <TouchableOpacity 
+          style={styles.retryButton} 
+          onPress={() => {
+            // Reshuffle movies
+            const shuffled = [...allMovies].sort(() => Math.random() - 0.5);
+            setDiscoverMovies(shuffled);
+            setCurrentIndex(0);
+          }}
+        >
+          <Text style={styles.retryButtonText}>Start Over</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
+
+  return (
+    <View style={styles.discoverContainer}>
+      <Text style={styles.discoverTitle}>Discover Movies</Text>
+      <Text style={styles.discoverSubtitle}>Swipe right to add to your list, left to skip</Text>
+      
+      <View style={styles.cardContainer}>
+        {/* Next card (shows behind current card) */}
+        {currentIndex + 1 < discoverMovies.length && (
+          <Animated.View 
+            style={[styles.cardWrapper, nextCardStyle, { zIndex: 0 }]}
+          >
+            <View style={styles.card}>
+              <Image
+                source={{ uri: discoverMovies[currentIndex + 1].image }}
+                style={styles.cardImage}
+                onError={() => console.log(`Image error for ${discoverMovies[currentIndex + 1].title}`)}
+              />
+              <View style={styles.cardContent}>
+                <Text style={styles.cardTitle}>{discoverMovies[currentIndex + 1].title}</Text>
+                <Text style={styles.cardDescription} numberOfLines={3}>
+                  {discoverMovies[currentIndex + 1].description || 'No description available'}
+                </Text>
+              </View>
+            </View>
+          </Animated.View>
+        )}
+        
+        {/* Current card (top card that can be swiped) */}
+        <Animated.View 
+          {...panResponderRef.current?.panHandlers}
+          style={[styles.cardWrapper, cardStyle, { zIndex: 1 }]}
+        >
+          <View style={styles.card}>
+            <Image
+              source={{ uri: discoverMovies[currentIndex].image }}
+              style={styles.cardImage}
+              onError={() => console.log(`Image error for ${discoverMovies[currentIndex].title}`)}
+            />
+            <View style={styles.cardContent}>
+              <Text style={styles.cardTitle}>{discoverMovies[currentIndex].title}</Text>
+              <Text style={styles.cardDescription} numberOfLines={3}>
+                {discoverMovies[currentIndex].description || 'No description available'}
+              </Text>
+            </View>
+          </View>
+        </Animated.View>
+      </View>
+      
       <View style={styles.buttonsContainer}>
         <TouchableOpacity 
-          style={[styles.button, styles.skipButton]}
+          style={[styles.button, styles.buttonDislike]}
           onPress={swipeLeft}
         >
-          <Icon name="close" size={30} color="white" />
+          <Icon name="close" size={30} color="#fff" />
         </TouchableOpacity>
         <TouchableOpacity 
-          style={[styles.button, styles.watchButton]}
+          style={[styles.button, styles.buttonLike]} 
           onPress={swipeRight}
         >
-          <Icon name="add" size={30} color="white" />
+          <Icon name="heart" size={30} color="#fff" />
         </TouchableOpacity>
       </View>
+      
+      {lastDirection && (
+        <View style={styles.swipeIndicator}>
+          <Text style={styles.swipeText}>
+            {lastDirection === 'right' ? 'Added to watchlist' : 'Skipped'}
+          </Text>
+        </View>
+      )}
     </View>
   );
 };
@@ -764,22 +1029,24 @@ const LoginScreen = ({ navigation }) => {
 // Update App component to include LoginScreen
 const App = () => {
   return (
-    <WatchListProvider>
-      <NavigationContainer>
-        <Stack.Navigator initialRouteName="Login">
-          <Stack.Screen 
-            name="Login" 
-            component={LoginScreen}
-            options={{ headerShown: false }}
-          />
-          <Stack.Screen 
-            name="Main" 
-            component={HomeTabs} 
-            options={{ headerShown: false }}
-          />
-        </Stack.Navigator>
-      </NavigationContainer>
-    </WatchListProvider>
+    <MovieProvider>
+      <WatchListProvider>
+        <NavigationContainer>
+          <Stack.Navigator initialRouteName="Login">
+            <Stack.Screen 
+              name="Login" 
+              component={LoginScreen}
+              options={{ headerShown: false }}
+            />
+            <Stack.Screen 
+              name="Main" 
+              component={HomeTabs} 
+              options={{ headerShown: false }}
+            />
+          </Stack.Navigator>
+        </NavigationContainer>
+      </WatchListProvider>
+    </MovieProvider>
   );
 };
 
@@ -932,6 +1199,11 @@ const styles = StyleSheet.create({
     color: 'white',
     marginTop: 5,
     fontSize: 14,
+    textAlign: 'center',
+  },
+  showYear: {
+    color: '#999',
+    fontSize: 12,
     textAlign: 'center',
   },
   noResults: {
@@ -1308,6 +1580,11 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
+  loadingText: {
+    color: '#FFF',
+    marginTop: 10,
+    fontSize: 16,
+  },
   errorContainer: {
     flex: 1,
     backgroundColor: '#000',
@@ -1316,10 +1593,11 @@ const styles = StyleSheet.create({
     padding: 20,
   },
   errorText: {
-    color: '#E50914',
-    fontSize: 18,
-    marginBottom: 10,
+    color: '#FFF',
+    marginTop: 10,
+    fontSize: 16,
     textAlign: 'center',
+    marginBottom: 20,
   },
   retryButton: {
     backgroundColor: '#E50914',
@@ -1328,8 +1606,114 @@ const styles = StyleSheet.create({
     borderRadius: 5,
   },
   retryButtonText: {
-    color: 'white',
+    color: '#FFF',
     fontSize: 16,
+  },
+  emptyContainer: {
+    flex: 1,
+    backgroundColor: '#000',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  emptyText: {
+    color: '#FFF',
+    fontSize: 16,
+  },
+  discoverContainer: {
+    flex: 1,
+    backgroundColor: '#000',
+    padding: 20,
+  },
+  discoverTitle: {
+    color: 'white',
+    fontSize: 24,
+    fontWeight: 'bold',
+    marginBottom: 5,
+  },
+  discoverSubtitle: {
+    color: '#999',
+    fontSize: 16,
+    marginBottom: 20,
+  },
+  cardContainer: {
+    flex: 1,
+    position: 'relative',
+    marginVertical: 20,
+  },
+  cardWrapper: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  card: {
+    width: 300,
+    height: 450,
+    backgroundColor: '#333',
+    borderRadius: 10,
+    overflow: 'hidden',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 5,
+    elevation: 5,
+  },
+  cardImage: {
+    width: '100%',
+    height: 350,
+    resizeMode: 'cover',
+  },
+  cardContent: {
+    padding: 15,
+  },
+  cardTitle: {
+    color: '#fff',
+    fontSize: 18,
+    fontWeight: 'bold',
+    marginBottom: 5,
+  },
+  cardDescription: {
+    color: '#ccc',
+    fontSize: 14,
+  },
+  buttonsContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    width: '80%',
+    alignSelf: 'center',
+    marginBottom: 30,
+  },
+  buttonDislike: {
+    backgroundColor: '#E50914',
+  },
+  buttonLike: {
+    backgroundColor: '#4CAF50',
+  },
+  swipeIndicator: {
+    position: 'absolute',
+    bottom: 100,
+    width: '100%',
+    alignItems: 'center',
+  },
+  swipeText: {
+    color: '#fff',
+    fontSize: 16,
+    padding: 10,
+    backgroundColor: 'rgba(0,0,0,0.7)',
+    borderRadius: 5,
+  },
+  emptySearch: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  emptySearchText: {
+    color: '#666',
+    fontSize: 16,
+    textAlign: 'center',
   },
 });
 
