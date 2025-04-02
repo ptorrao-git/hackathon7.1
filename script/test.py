@@ -77,7 +77,8 @@ def get_movies_from_default(user_id):
     default_movies = [row[0] for row in results]
     for movie in default_movies:
         query = """INSERT INTO UserRecommended (user_id, movie_id, date_added)
-                    VALUES (%s, %s, NOW());"""
+                VALUES (%s, %s, NOW())
+                ON DUPLICATE KEY UPDATE date_added = NOW();"""
         cursor.execute(query, (user_id, movie))
         connection.commit()
     cursor.close()
@@ -137,7 +138,8 @@ def get_movies_from_default_to_friend(user_id):
     default_movies = [row[0] for row in results]
     for movie in default_movies:
         query = """INSERT INTO FriendRecommended (user_id, movie_id, date_added)
-                    VALUES (%s, %s, NOW());"""
+                VALUES (%s, %s, NOW())
+                ON DUPLICATE KEY UPDATE date_added = NOW();"""
         cursor.execute(query, (user_id, movie))
         connection.commit()
     cursor.close()
@@ -173,7 +175,7 @@ def get_friends_recommendations(user_id):
                 continue
             send_to_friend_recommended(user_id, movie_id)
 
-model = SentenceTransformer('sentence-transformers/paraphrase-MiniLM-L6-v2')
+model = SentenceTransformer('./fine_tuned_sbert', device = 'cpu')
 def encode_chunk(chunk):
     return model.encode(chunk, batch_size=64, show_progress_bar=False)
 
@@ -213,7 +215,6 @@ def get_recommended(uid):
 
     for movie in top_recommendations:
         movie_id = get_movie_id_from_ml_str(movie)
-        print(movie_id)
         send_to_user_recommended(uid, movie_id)
 
 def main():
