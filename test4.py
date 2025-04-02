@@ -1,72 +1,43 @@
-
 import pandas as pd
-from sentence_transformers import SentenceTransformer
-from sklearn.neighbors import NearestNeighbors
-import numpy as np
+# from sentence_transformers import SentenceTransformer
+# from sklearn.neighbors import NearestNeighbors
+# import numpy as np
 from multiprocessing import Pool
-import pymysql
-import sys
-
-def make_connection():
-    try:
-        connection = pymysql.connect(
-            host='hackathon.c9g6wywk8mvf.eu-north-1.rds.amazonaws.com',
-            user='script',
-            password='vCNZzmHRVLxtZErdZGtY',
-            database='hackathon'
-        )
-        return connection
-    except pymysql.MySQLError as err:
-        print(f"Error: {err}")
-        return None
-
-def get_movies_by_title_and_info():
-    connection = make_connection()
-    if connection is None:
-        return None
-    cursor = connection.cursor()
-    query = "SELECT ml_str FROM dbMovies"
-    cursor.execute(query)
-    results = cursor.fetchall()
-    movies = [row[0] for row in results]
-    cursor.close()
-    connection.close()
-    return movies
 
 # Load the SBERT model
-model = SentenceTransformer('sentence-transformers/paraphrase-MiniLM-L6-v2')
+# model = SentenceTransformer('sentence-transformers/paraphrase-MiniLM-L6-v2', device='cuda')
 
 # Read data using pandas
-# movies_df = pd.read_csv('movies_metadata.csv')
-# credits_df = pd.read_csv('credits.csv')
+movies_df = pd.read_csv('movies.csv')
+
+pd.set_option('display.max_rows', None)
+pd.set_option('display.max_columns', None)
+pd.set_option('display.width', None)  
+pd.set_option('display.max_colwidth', None) 
+
+print(movies_df)
 
 # Prepare movie descriptions
-movies = get_movies_by_title_and_info()
+movies = []
 
-# for i, movie in movies_df.iterrows():
-#     try:
-#         credit = credits_df.iloc[i]
+for i, movie in movies_df.iterrows():
+    try:
         
-#         # Construct the movie description string
-#         title = movie.get("title", "N/A")
-#         overview = movie.get("overview", "No description available")
-#         genres = movie.get("genres", "Unknown")
-#         runtime = movie.get("runtime", "Unknown")
+        # Construct the movie description string
+        title = movie.get("Movie Name", "N/A")
+        overview = movie.get("overview", "No description available")
+        genres = movie.get("genres", "Unknown")
+        runtime = movie.get("runtime", "Unknown")
         
-#         # Handle the cast and crew from the credits data
-#         cast = credit.get("cast", "").split(",") if "cast" in credit else []
-#         cast_str = ", ".join(cast) if cast else "No cast information"
+        # Handle the cast and crew from the credits data
         
-#         crew = credit.get("crew", "").split(",") if "crew" in credit else []
-#         director = next((person for person in crew if "Director" in person), "No director info")
+        # Construct the final description string
+        test_str = f"Title: {title} | Description: {overview} | Cast: {cast_str} | Genre: {genres} | Runtime: {runtime} minutes | Director: {director}"
+        movies.append(test_str)
         
-#         # Construct the final description string
-#         test_str = f"Title: {title} | Description: {overview} | Cast: {cast_str} | Genre: {genres} | Runtime: {runtime} minutes | Director: {director}"
-#         movies.append(test_str)
-        
-#     except IndexError:
-#         print(f"Index error at index {i}. Mismatch between movies and credits.")
-#         break
+    except IndexError:
+        print(f"Index error at index {i}. Mismatch between movies and credits.")
+        break
 
 # Helper function to encode a chunk of movies
 def encode_chunk(chunk):
@@ -82,7 +53,7 @@ with Pool(processes=4) as pool:
 
 # Flatten the chunks to get the final movie embeddings
 movie_embeddings = np.vstack(movie_embeddings_chunks)
-    
+
 # Example watch history (user watched these movies)
 user_watched = [
     "Title: Avatar | Description: A paraplegic marine dispatched to the moon Pandora on a unique mission becomes torn between following his orders and protecting the world he feels is his home. | Cast: Sam Worthington, Zoe Saldana | Genre: Action, Adventure, Sci-Fi | Runtime: 162 minutes | Director: James Cameron"
