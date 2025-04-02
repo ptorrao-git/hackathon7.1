@@ -21,9 +21,9 @@ console.log('Starting server initialization...');
 // Replace these values with your actual AWS RDS credentials
 const dbConfig = {
   host: 'hackathon.c9g6wywk8mvf.eu-north-1.rds.amazonaws.com', // ⬅️ CHANGE THIS
-  user: 'filferna',                              // ⬅️ CHANGE THIS
-  password: 'thg8f3fx1',                          // ⬅️ CHANGE THIS
-  database: 'finalBDtests',                     // ⬅️ CHANGE THIS
+  user: 'script',                              // ⬅️ CHANGE THIS
+  password: 'vCNZzmHRVLxtZErdZGtY',                          // ⬅️ CHANGE THIS
+  database: 'joynDBprod',                     // ⬅️ CHANGE THIS
   port: 3306,
   ssl: {
     minVersion: 'TLSv1.2',
@@ -1065,6 +1065,98 @@ app.get('/api/recommendations/friends/:userId', async (req, res) => {
   } catch (error) {
     console.error('Error fetching friend recommendations:', error);
     res.status(500).json({ error: 'Failed to fetch friend recommendations' });
+  }
+});
+
+// Get user recommendations directly from the UserRecommended table (for Discover screen)
+app.get('/api/recommendations/user-direct/:userId', async (req, res) => {
+  const userId = req.params.userId;
+  
+  if (!userId) {
+    return res.status(400).json({ error: 'User ID is required' });
+  }
+  
+  console.log(`DEBUG: Fetching direct user recommendations for user ${userId} (Discover)`);
+  
+  try {
+    // Get movies directly from UserRecommended table without additional filters
+    const query = `
+      SELECT 
+        m.id,
+        m.title,
+        m.overview,
+        m.poster_path,
+        m.release_date,
+        m.vote_average,
+        ur.date_added
+      FROM 
+        Movies m
+      JOIN 
+        UserRecommended ur ON m.id = ur.movie_id
+      WHERE 
+        ur.user_id = ?
+      ORDER BY 
+        ur.date_added DESC
+      LIMIT 50
+    `;
+    
+    console.log(`DEBUG: Running direct user recommendations query for user ${userId}`);
+    
+    // Use promise interface for async/await
+    const [results] = await pool.promise().query(query, [userId]);
+    
+    console.log(`DEBUG: Query complete. Retrieved ${results.length} direct user recommendations for user ${userId}`);
+    
+    if (results.length === 0) {
+      console.log(`DEBUG: No recommendations found in UserRecommended table for user ${userId}`);
+      // Check if user has any records in the UserRecommended table
+      const checkQuery = `SELECT COUNT(*) as count FROM UserRecommended WHERE user_id = ?`;
+      const [checkResults] = await pool.promise().query(checkQuery, [userId]);
+      console.log(`DEBUG: User ${userId} has ${checkResults[0].count} records in UserRecommended table`);
+    } else {
+      console.log(`DEBUG: First recommended movie: ${results[0].title} (ID: ${results[0].id})`);
+    }
+    
+    // Transform results to match the expected format
+    const transformedResults = results.map(movie => {
+      let imageUrl;
+      
+      if (movie.poster_path && movie.poster_path !== '') {
+        imageUrl = `https://image.tmdb.org/t/p/w500${movie.poster_path}`;
+      } else {
+        imageUrl = `https://placehold.co/400x600/1e1e1e/FFF?text=${encodeURIComponent(movie.title)}`;
+      }
+      
+      // Fix for vote_average processing
+      let rating = 'N/A';
+      if (movie.vote_average !== null && movie.vote_average !== undefined) {
+        const ratingNum = parseFloat(movie.vote_average);
+        if (!isNaN(ratingNum)) {
+          rating = ratingNum.toFixed(1);
+        }
+      }
+      
+      return {
+        id: movie.id,
+        title: movie.title,
+        description: movie.overview,
+        image: imageUrl,
+        poster_path: movie.poster_path,
+        fallbackImage: `https://placehold.co/400x600/1e1e1e/FFF?text=${encodeURIComponent(movie.title)}`,
+        releaseDate: movie.release_date,
+        rating: rating
+      };
+    });
+    
+    console.log(`DEBUG: Sending ${transformedResults.length} transformed recommendations to client`);
+    
+    res.json({ 
+      success: true, 
+      recommendations: transformedResults 
+    });
+  } catch (error) {
+    console.error(`DEBUG: Error fetching direct user recommendations: ${error.message}`);
+    res.status(500).json({ error: 'Failed to fetch user recommendations' });
   }
 });
 

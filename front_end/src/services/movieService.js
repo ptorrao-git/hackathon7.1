@@ -265,4 +265,18 @@ export const getFriendRecommendations = async (userId) => {
     console.error('Error fetching friend recommendations:', error);
     throw error;
   }
+};
+
+// Get direct user recommendations for the discover screen
+export const getDiscoverUserRecommendations = async (userId) => {
+  try {
+    const response = await fetch(`${API_URL}/api/recommendations/user-direct/${userId}`);
+    if (!response.ok) {
+      throw new Error('Failed to fetch direct user recommendations');
+    }
+    return await response.json();
+  } catch (error) {
+    console.error('Error fetching direct user recommendations:', error);
+    throw error;
+  }
 }; 

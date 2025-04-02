@@ -18,7 +18,8 @@ import {
   searchUsersByEmail,
   addFriend,
   getFriends,
-  getFriendRecommendations
+  getFriendRecommendations,
+  getDiscoverUserRecommendations
 } from './src/services/movieService';
 import IconFeather from 'react-native-vector-icons/Feather';
 
@@ -34,9 +35,9 @@ const API_URL = 'http://localhost:3001';
 const dbConfig = {
   host: 'hackathon.c9g6wywk8mvf.eu-north-1.rds.amazonaws.com',
   port: '3306',
-  database: 'finalBDtests',
-  user: 'filferna',
-  password: 'thg8f3fx1',
+  database: 'joynDBprod',
+  user: 'script',
+  password: 'vCNZzmHRVLxtZErdZGtY',
   ssl: {
     minVersion: 'TLSv1.2',
     rejectUnauthorized: false
@@ -301,7 +302,7 @@ const MovieModal = ({ movie, visible, onClose, onMovieAction }) => {
             <Text style={styles.modalDescription}>
               {movie.description}
             </Text>
-            
+
             <View style={styles.modalButtonsContainer}>
               <TouchableOpacity 
                 style={[styles.modalButton, styles.watchButton]}
@@ -330,13 +331,13 @@ const MovieModal = ({ movie, visible, onClose, onMovieAction }) => {
                     <Icon name={inWatchlist ? "remove" : "add"} size={18} color="#FFF" />
                     <Text style={styles.addButtonText}>
                       {inWatchlist ? 'Remove from List' : 'Add to List'}
-                    </Text>
+                </Text>
                   </>
                 )}
               </TouchableOpacity>
             </View>
           </ScrollView>
-          
+
           <TouchableOpacity style={styles.closeButton} onPress={onClose}>
             <Icon name="close" size={24} color="#FFF" />
           </TouchableOpacity>
@@ -385,28 +386,36 @@ const MovieProvider = ({ children }) => {
 
   // Fetch all movies on component mount
   useEffect(() => {
+    console.log("MovieProvider: Fetching all movies");
     fetchMovies();
   }, []);
 
   // Load recommended movies when user changes
   useEffect(() => {
     if (user && user.userId) {
+      console.log(`MovieProvider: User detected (${user.userId}), fetching recommendations`);
       fetchUserRecommendations(user.userId);
       fetchFriendRecommendations(user.userId);
+    } else {
+      console.log("MovieProvider: No user detected, skipping recommendations");
     }
   }, [user]);
 
   // Fetch all movies
   const fetchMovies = async () => {
-    setIsLoading(true);
+      setIsLoading(true);
     try {
+      console.log("MovieProvider: Fetching all movies from API");
       const data = await getMovies();
       if (data && data.movies) {
+        console.log(`MovieProvider: Successfully fetched ${data.movies.length} movies`);
         setAllMovies(data.movies);
+      } else {
+        console.log("MovieProvider: Received empty or invalid movie data");
       }
       setIsLoading(false);
     } catch (error) {
-      console.error('Error fetching movies:', error);
+      console.error('MovieProvider Error fetching movies:', error);
       setError('Failed to fetch movies');
       setIsLoading(false);
     }
@@ -415,24 +424,36 @@ const MovieProvider = ({ children }) => {
   // Fetch user recommendations
   const fetchUserRecommendations = async (userId) => {
     try {
+      console.log(`MovieProvider: Fetching recommendations for user ${userId}`);
       const data = await getUserRecommendations(userId);
       if (data && data.recommendations) {
+        console.log(`MovieProvider: Successfully fetched ${data.recommendations.length} user recommendations`);
         setRecommendedMovies(data.recommendations);
+      } else {
+        console.log("MovieProvider: Received empty or invalid recommendations data");
+        setRecommendedMovies([]);
       }
     } catch (error) {
-      console.error('Error fetching user recommendations:', error);
+      console.error('MovieProvider Error fetching user recommendations:', error);
+      setRecommendedMovies([]);
     }
   };
   
   // Fetch friend recommendations
   const fetchFriendRecommendations = async (userId) => {
     try {
+      console.log(`MovieProvider: Fetching friend recommendations for user ${userId}`);
       const data = await getFriendRecommendations(userId);
       if (data && data.recommendations) {
+        console.log(`MovieProvider: Successfully fetched ${data.recommendations.length} friend recommendations`);
         setFriendRecommendations(data.recommendations);
+      } else {
+        console.log("MovieProvider: Received empty or invalid friend recommendations data");
+        setFriendRecommendations([]);
       }
     } catch (error) {
-      console.error('Error fetching friend recommendations:', error);
+      console.error('MovieProvider Error fetching friend recommendations:', error);
+      setFriendRecommendations([]);
     }
   };
 
@@ -446,13 +467,13 @@ const MovieProvider = ({ children }) => {
   };
 
   return (
-    <MovieContext.Provider
-      value={{
-        allMovies,
+    <MovieContext.Provider 
+      value={{ 
+        allMovies, 
         recommendedMovies,
         friendRecommendations,
-        isLoading,
-        error,
+        isLoading, 
+        error, 
         fetchMovies,
         fetchUserRecommendations,
         fetchFriendRecommendations,
@@ -595,7 +616,7 @@ const HomeScreen = ({ navigation }) => {
       </View>
     );
   }
-  
+
   if (error && !featured && categories.length === 0) {
     return (
       <View style={styles.errorContainer}>
@@ -668,7 +689,7 @@ const HomeScreen = ({ navigation }) => {
               keyExtractor={(item) => item.id.toString()}
               showsHorizontalScrollIndicator={false}
               renderItem={({ item }) => (
-                <TouchableOpacity 
+              <TouchableOpacity 
                   style={[
                     styles.movieItem,
                     category.isLarge && styles.largeMovieItem
@@ -686,10 +707,10 @@ const HomeScreen = ({ navigation }) => {
                       category.isLarge && styles.largeMovieImageFallback
                     ]}
                   />
-                </TouchableOpacity>
+              </TouchableOpacity>
               )}
             />
-          </View>
+        </View>
         )
       ))}
 
@@ -1215,29 +1236,29 @@ const ProfileScreen = ({ navigation }) => {
       </View>
     );
   }
-
+  
   return (
     <View style={styles.container}>
       <ScrollView style={styles.profileContainer}>
-        {/* Profile Header */}
-        <View style={styles.profileHeader}>
-          <Image 
-            source={{ uri: userInfo.avatar }} 
-            style={styles.avatar}
-          />
-          <View style={styles.profileInfo}>
-            <Text style={styles.profileName}>{userInfo.email}</Text>
-            <Text style={styles.profilePlan}>{userInfo.plan}</Text>
-            <Text style={styles.profileDate}>Birthday: {userInfo.birthday}</Text>
-          </View>
+      {/* Profile Header */}
+      <View style={styles.profileHeader}>
+        <Image 
+          source={{ uri: userInfo.avatar }} 
+          style={styles.avatar}
+        />
+        <View style={styles.profileInfo}>
+          <Text style={styles.profileName}>{userInfo.email}</Text>
+          <Text style={styles.profilePlan}>{userInfo.plan}</Text>
+          <Text style={styles.profileDate}>Birthday: {userInfo.birthday}</Text>
         </View>
+      </View>
 
-        {/* Action Buttons */}
-        <View style={styles.actionButtons}>
+      {/* Action Buttons */}
+      <View style={styles.actionButtons}>
           <TouchableOpacity style={styles.actionButton} onPress={handleLogout}>
             <Icon name="log-out-outline" size={24} color="white" />
             <Text style={styles.actionButtonText}>Sign Out</Text>
-          </TouchableOpacity>
+        </TouchableOpacity>
         </View>
         
         {/* Tab Buttons */}
@@ -1250,9 +1271,9 @@ const ProfileScreen = ({ navigation }) => {
             <Text style={[styles.tabBtnText, activeTab === 'watchlist' && styles.activeTabBtnText]}>
               Watchlist
             </Text>
-          </TouchableOpacity>
+        </TouchableOpacity>
           
-          <TouchableOpacity 
+        <TouchableOpacity 
             style={[styles.tabBtn, activeTab === 'friends' && styles.activeTabBtn]} 
             onPress={() => switchTab('friends')}
           >
@@ -1260,8 +1281,8 @@ const ProfileScreen = ({ navigation }) => {
             <Text style={[styles.tabBtnText, activeTab === 'friends' && styles.activeTabBtnText]}>
               Friends
             </Text>
-          </TouchableOpacity>
-        </View>
+        </TouchableOpacity>
+      </View>
 
         {/* Tab Content */}
         <View style={styles.tabContentContainer}>
@@ -1283,7 +1304,7 @@ const ProfileScreen = ({ navigation }) => {
                 </View>
               ) : watchList.length === 0 ? (
                 <View style={styles.emptyStateContainer}>
-                  <Icon name="film-outline" size={50} color="#666" />
+            <Icon name="film-outline" size={50} color="#666" />
                   <Text style={styles.emptyListText}>No movies in your watchlist</Text>
                   <Text style={styles.emptyListSubText}>Add movies from the Discover or Search tabs</Text>
                 </View>
@@ -1305,7 +1326,7 @@ const ProfileScreen = ({ navigation }) => {
                       <Text style={styles.movieTitle} numberOfLines={1}>{movie.title}</Text>
                       <Text style={styles.movieYear}>
                         {movie.year || (movie.releaseDate ? new Date(movie.releaseDate).getFullYear() : 'N/A')}
-                      </Text>
+            </Text>
                       <TouchableOpacity 
                         style={styles.removeIconButton}
                         onPress={() => handleRemoveFromWatchlist(movie.id)}
@@ -1316,8 +1337,8 @@ const ProfileScreen = ({ navigation }) => {
                   ))}
                 </View>
               )}
-            </View>
-          ) : (
+          </View>
+        ) : (
             <View style={styles.tabSection}>
               <Text style={styles.sectionTitle}>Find Friends</Text>
               
@@ -1332,7 +1353,7 @@ const ProfileScreen = ({ navigation }) => {
                 <TouchableOpacity style={styles.searchButton} onPress={handleSearchFriends}>
                   <Text style={styles.searchButtonText}>Search</Text>
                 </TouchableOpacity>
-              </View>
+                </View>
               
               {isSearching && (
                 <View style={styles.loadingContainer}>
@@ -1355,17 +1376,17 @@ const ProfileScreen = ({ navigation }) => {
                         onPress={() => handleAddFriend(user.user_id)}
                       >
                         <Text style={styles.addButtonText}>Add Friend</Text>
-                      </TouchableOpacity>
-                    </View>
-                  ))}
-                </View>
-              )}
+                </TouchableOpacity>
+              </View>
+            ))}
+          </View>
+        )}
               
               {searchResults.length === 0 && searchEmail.length > 0 && !isSearching && (
                 <View style={styles.emptyStateContainer}>
                   <Icon name="search" size={50} color="#666" />
                   <Text style={styles.noResultsText}>No users found matching "{searchEmail}"</Text>
-                </View>
+      </View>
               )}
               
               <Text style={[styles.sectionTitle, {marginTop: 20}]}>My Friends</Text>
@@ -1467,8 +1488,10 @@ const DiscoverScreen = ({ navigation }) => {
   const { watchList, setWatchList } = useContext(WatchListContext);
   const currentUserId = user?.userId || 1; // Default user ID, replace with actual user ID from auth
   const [discoverMovies, setDiscoverMovies] = useState([]);
+  const [userDirectRecommendations, setUserDirectRecommendations] = useState([]);
   const [friendRecommendations, setFriendRecommendations] = useState([]);
   const [lastDirection, setLastDirection] = useState(null);
+  const [isInitializing, setIsInitializing] = useState(true);
   
   // Refs for handling card movement
   const panResponderRef = useRef(null);
@@ -1479,14 +1502,40 @@ const DiscoverScreen = ({ navigation }) => {
   // Load friend recommendations
   const loadFriendRecommendations = useCallback(async () => {
     try {
+      console.log(`DEBUG: Fetching friend recommendations for user ${currentUserId}`);
       const data = await getFriendRecommendations(currentUserId);
       if (data.recommendations && data.recommendations.length > 0) {
+        console.log(`DEBUG: Received ${data.recommendations.length} friend recommendations`);
         setFriendRecommendations(data.recommendations);
         return data.recommendations;
       }
+      console.log(`DEBUG: No friend recommendations received`);
       return [];
     } catch (err) {
       console.error('Failed to load friend recommendations:', err);
+      return [];
+    }
+  }, [currentUserId]);
+  
+  // Load direct user recommendations from UserRecommended table
+  const loadUserDirectRecommendations = useCallback(async () => {
+    try {
+      console.log(`DEBUG: Fetching direct user recommendations for user ${currentUserId} from API`);
+      console.log(`DEBUG: API URL will be /api/recommendations/user-direct/${currentUserId}`);
+      
+      const data = await getDiscoverUserRecommendations(currentUserId);
+      console.log(`DEBUG: User direct recommendations API response:`, data);
+      
+      if (data.recommendations && data.recommendations.length > 0) {
+        console.log(`DEBUG: Received ${data.recommendations.length} direct user recommendations`);
+        console.log(`DEBUG: First recommendation: ${JSON.stringify(data.recommendations[0].title)}`);
+        setUserDirectRecommendations(data.recommendations);
+        return data.recommendations;
+      }
+      console.log(`DEBUG: No direct user recommendations received`);
+      return [];
+    } catch (err) {
+      console.error('Failed to load direct user recommendations:', err);
       return [];
     }
   }, [currentUserId]);
@@ -1494,63 +1543,91 @@ const DiscoverScreen = ({ navigation }) => {
   useEffect(() => {
     // Load movies when component mounts
     const initializeDiscoverMovies = async () => {
-      // First load friend recommendations
-      const friendRecs = await loadFriendRecommendations();
+      setIsInitializing(true);
+      console.log("===== DEBUG: INITIALIZING DISCOVER MOVIES =====");
+      console.log(`DEBUG: Current user ID: ${currentUserId}`);
       
-      if (allMovies && allMovies.length > 0) {
-        // Start with basic movie pool
-        let moviePool = [...allMovies];
-        
-        // First prioritize user's recommended movies
-        if (recommendedMovies && recommendedMovies.length > 0) {
-          const userRecsNonDuplicates = recommendedMovies.filter(
-            rec => !moviePool.some(movie => movie.id === rec.id)
-          );
-          moviePool = [...userRecsNonDuplicates, ...moviePool];
-          console.log(`Prioritizing ${userRecsNonDuplicates.length} user recommended movies`);
-        }
-        
-        // Then mix in some friend recommendations (if available)
-        if (friendRecs.length > 0) {
-          const friendRecsNonDuplicates = friendRecs.filter(
-            frec => !moviePool.some(movie => movie.id === frec.id)
-          );
-          
-          // Select about 30% of friend recommendations to mix in
-          const selectedFriendRecs = friendRecsNonDuplicates
-            .sort(() => Math.random() - 0.5)  // Shuffle them
-            .slice(0, Math.max(3, Math.floor(friendRecsNonDuplicates.length * 0.3)));
-            
-          // Insert friend recommendations at random positions in the first 15 movies
-          const firstBatch = moviePool.slice(0, 15);
-          const remainingBatch = moviePool.slice(15);
-          
-          // Mix friend recommendations into first batch
-          selectedFriendRecs.forEach(movie => {
-            const insertPosition = Math.floor(Math.random() * (firstBatch.length + 1));
-            firstBatch.splice(insertPosition, 0, movie);
-          });
-          
-          moviePool = [...firstBatch, ...remainingBatch];
-          console.log(`Mixed in ${selectedFriendRecs.length} friend recommendations`);
-        }
-        
-        // Final shuffle for variety
-        const shuffled = moviePool.sort(() => Math.random() - 0.5);
-        setDiscoverMovies(shuffled);
-        console.log(`Loaded ${shuffled.length} movies for discover`);
-      } else {
-        // Fallback to sample movies
-        setDiscoverMovies(SWIPE_MOVIES);
-        console.log("Using fallback movies");
+      // First load direct user recommendations from UserRecommended table
+      const userRecs = await loadUserDirectRecommendations();
+      console.log(`DEBUG: Loaded ${userRecs.length} direct user recommendations`);
+      
+      // Then load friend recommendations
+      const friendRecs = await loadFriendRecommendations();
+      console.log(`DEBUG: Loaded ${friendRecs.length} friend recommendations`);
+      
+      // Start building the movie pool
+      let moviePool = [];
+      
+      // FIRST: Always prioritize user's direct recommendations from UserRecommended table
+      if (userRecs && userRecs.length > 0) {
+        console.log(`DEBUG: Using ${userRecs.length} direct user recommendations as primary source`);
+        moviePool = [...userRecs];
+      } 
+      // Fallback to the context recommendedMovies if direct query returns nothing
+      else if (recommendedMovies && recommendedMovies.length > 0) {
+        console.log(`DEBUG: No direct recommendations, using ${recommendedMovies.length} context recommendations`);
+        moviePool = [...recommendedMovies];
       }
+      
+      // If we have no recommendations yet, use general movies
+      if (moviePool.length === 0 && allMovies && allMovies.length > 0) {
+        console.log(`DEBUG: No user recommendations available, using general movie pool`);
+        moviePool = [...allMovies];
+      }
+      
+      // SECOND: Add friend recommendations at regular intervals if we have some
+      if (friendRecs && friendRecs.length > 0 && moviePool.length > 0) {
+        console.log(`DEBUG: Processing ${friendRecs.length} friend recommendations`);
+        
+        // Filter out friend recommendations that duplicate user recommendations
+        const userRecIds = new Set(moviePool.map(m => m.id));
+        const uniqueFriendRecs = friendRecs.filter(m => !userRecIds.has(m.id));
+        console.log(`DEBUG: ${uniqueFriendRecs.length} friend recommendations are unique`);
+        
+        if (uniqueFriendRecs.length > 0) {
+          // Select about 20% of friend recommendations to mix in
+          const selectedFriendRecs = uniqueFriendRecs
+            .sort(() => Math.random() - 0.5)
+            .slice(0, Math.max(2, Math.floor(uniqueFriendRecs.length * 0.2)));
+            
+          // Reserve the first 5 slots for user recommendations only
+          const frontBatch = moviePool.slice(0, 5);
+          const middleBatch = moviePool.slice(5, 20);
+          const remainingBatch = moviePool.slice(20);
+          
+          // Mix friend recommendations into middle batch at regular intervals
+          if (middleBatch.length > 0 && selectedFriendRecs.length > 0) {
+            const spacing = Math.max(3, Math.floor(middleBatch.length / selectedFriendRecs.length));
+            selectedFriendRecs.forEach((movie, index) => {
+              const insertPosition = Math.min(index * spacing, middleBatch.length);
+              middleBatch.splice(insertPosition, 0, movie);
+            });
+          }
+          
+          // Reassemble the movie pool
+          moviePool = [...frontBatch, ...middleBatch, ...remainingBatch];
+          console.log(`DEBUG: Mixed in ${selectedFriendRecs.length} friend recommendations`);
+        }
+      }
+      
+      // If we still have no movies, use the sample movies as last resort
+      if (moviePool.length === 0) {
+        console.log("DEBUG: No movies found in any source, using fallback samples");
+      setDiscoverMovies(SWIPE_MOVIES);
+      } else {
+        console.log(`DEBUG: Final movie pool contains ${moviePool.length} movies`);
+        setDiscoverMovies(moviePool);
+      }
+      
+      setIsInitializing(false);
+      console.log("===== DEBUG: INITIALIZATION COMPLETE =====");
     };
     
     initializeDiscoverMovies();
-    
+
     // Reset position when currentIndex changes
     resetPosition();
-  }, [allMovies, recommendedMovies, loadFriendRecommendations]);
+  }, [currentUserId, loadUserDirectRecommendations, loadFriendRecommendations, allMovies, recommendedMovies]);
 
   useEffect(() => {
     // Create the pan responder for drag gestures
@@ -1595,11 +1672,18 @@ const DiscoverScreen = ({ navigation }) => {
 
   // Swipe the card left
   const swipeLeft = () => {
+    console.log("DEBUG: Swiping left - animation starting");
+    console.log(`DEBUG: Current movie: ${JSON.stringify({
+      id: discoverMovies[currentIndex]?.id,
+      title: discoverMovies[currentIndex]?.title,
+    })}`);
+    
     Animated.timing(position, {
       toValue: { x: -500, y: 0 },
       duration: 300,
       useNativeDriver: false,
     }).start(() => {
+      console.log("DEBUG: Left swipe animation completed");
       swiped('left', discoverMovies[currentIndex]);
       resetPosition();
     });
@@ -1607,69 +1691,104 @@ const DiscoverScreen = ({ navigation }) => {
 
   // Swipe the card right
   const swipeRight = () => {
+    console.log("DEBUG: Swiping right - animation starting");
+    console.log(`DEBUG: Current movie: ${JSON.stringify({
+      id: discoverMovies[currentIndex]?.id,
+      title: discoverMovies[currentIndex]?.title,
+    })}`);
+    
     Animated.timing(position, {
       toValue: { x: 500, y: 0 },
       duration: 300,
       useNativeDriver: false,
     }).start(() => {
+      console.log("DEBUG: Right swipe animation completed");
       swiped('right', discoverMovies[currentIndex]);
       resetPosition();
     });
   };
 
   const swiped = async (direction, movie) => {
-    console.log(`Swiped ${direction} on:`, movie ? movie.title : 'unknown movie');
+    console.log("===== DEBUG: SWIPE ACTION =====");
+    console.log(`Direction: ${direction}`);
+    console.log(`Movie: ${movie ? JSON.stringify({
+      id: movie.id,
+      title: movie.title,
+      type: typeof movie.id
+    }) : 'unknown movie'}`);
+    console.log(`User ID: ${currentUserId}, type: ${typeof currentUserId}`);
+    
     setLastDirection(direction);
     
     if (!movie || !movie.id) {
-      console.error('Invalid movie object:', movie);
+      console.error('DEBUG: Invalid movie object:', movie);
       return;
     }
     
     if (direction === 'right') {
-      console.log(`Adding to watchlist: ${movie.title} (ID: ${movie.id})`);
+      console.log(`DEBUG: Adding to watchlist: ${movie.title} (ID: ${movie.id})`);
       try {
         // Call the API directly through the service function
+        console.log(`DEBUG: Calling addToWatchlist with params:`, {
+          userId: currentUserId,
+          movieId: movie.id,
+          movieTitle: movie.title
+        });
+        
         const result = await addToWatchlist(currentUserId, movie.id, movie.title);
-        console.log('Watchlist API response:', result);
+        console.log('DEBUG: Watchlist API response:', result);
         
         // Update the local state after successful API call
         if (result) {
+          console.log('DEBUG: API call successful, updating local state');
           // Add to the UI state
           setWatchList(prev => {
             // Check if movie is already in watchlist
             const exists = prev.some(item => item.id === movie.id);
             if (!exists) {
+              console.log(`DEBUG: Movie ${movie.id} not in watchlist, adding it`);
               return [...prev, movie];
             }
+            console.log(`DEBUG: Movie ${movie.id} already in watchlist`);
             return prev;
           });
-          console.log(`Successfully added ${movie.title} to watchlist`);
+          console.log(`DEBUG: Successfully added ${movie.title} to watchlist`);
         }
       } catch (error) {
-        console.error('Error adding to watchlist:', error);
+        console.error('DEBUG: Error adding to watchlist:', error);
       }
     } else if (direction === 'left') {
-      console.log(`Marking as not recommended: ${movie.title} (ID: ${movie.id})`);
+      console.log(`DEBUG: Marking as not recommended: ${movie.title} (ID: ${movie.id})`);
       try {
         // Call the addToNotRecommended service function
+        console.log(`DEBUG: Calling addToNotRecommended with params:`, {
+          userId: currentUserId,
+          movieId: movie.id,
+          movieTitle: movie.title
+        });
+        
         const result = await addToNotRecommended(currentUserId, movie.id, movie.title);
+        console.log('DEBUG: Not Recommended API response:', result);
+        
         if (result && result.success) {
-          console.log(`Successfully marked ${movie.title} as not recommended`);
+          console.log(`DEBUG: Successfully marked ${movie.title} as not recommended`);
         }
       } catch (error) {
-        console.error('Error marking as not recommended:', error);
+        console.error('DEBUG: Error marking as not recommended:', error);
       }
     }
     
+    console.log(`DEBUG: Moving to next card. Current index: ${currentIndex}, new index: ${currentIndex + 1}`);
     // Move to next card
     setCurrentIndex(prevIndex => prevIndex + 1);
     
     // Load more movies if we're nearing the end
     if (currentIndex >= discoverMovies.length - 5) {
-      console.log('Loading more discover movies...');
+      console.log(`DEBUG: Near end of card deck (${discoverMovies.length - currentIndex} cards left). Loading more...`);
       loadMoreDiscoverMovies();
     }
+    
+    console.log("===== DEBUG: SWIPE ACTION COMPLETE =====");
   };
 
   // Card rotation based on drag position
@@ -1698,34 +1817,90 @@ const DiscoverScreen = ({ navigation }) => {
   };
 
   const loadMoreDiscoverMovies = () => {
-    // If we have more movies in allMovies, add some to the discover deck
-    if (allMovies && allMovies.length > 0) {
-      console.log("Loading more discover movies from all movies");
-      // Get random selection from allMovies that aren't already in discoverMovies
+    console.log("===== DEBUG: LOADING MORE MOVIES =====");
+    
+    // First check if we have unused direct user recommendations
+    if (userDirectRecommendations && userDirectRecommendations.length > 0) {
+      console.log(`DEBUG: Checking for unused direct user recommendations`);
+      
+      // Get movie IDs that are already in the deck
       const currentMovieIds = new Set(discoverMovies.map(m => m.id));
+      
+      // Find user recommendations that haven't been shown yet
+      const unusedDirectRecs = userDirectRecommendations.filter(m => !currentMovieIds.has(m.id));
+      
+      if (unusedDirectRecs.length > 0) {
+        console.log(`DEBUG: Found ${unusedDirectRecs.length} unused direct user recommendations`);
+        
+        // Add up to 10 more direct recommendations
+        const additionalRecs = unusedDirectRecs.slice(0, 10);
+        console.log(`DEBUG: Adding ${additionalRecs.length} direct user recommendations to the deck`);
+        
+        setDiscoverMovies(prevMovies => [...prevMovies, ...additionalRecs]);
+        return; // We've added user recommendations, no need to continue
+      }
+    }
+    
+    // If no unused direct recommendations, check for regular recommendations in context
+    if (recommendedMovies && recommendedMovies.length > 0) {
+      console.log(`DEBUG: Checking for unused regular recommendations`);
+      
+      const currentMovieIds = new Set(discoverMovies.map(m => m.id));
+      const unusedRecommendations = recommendedMovies.filter(m => !currentMovieIds.has(m.id));
+      
+      if (unusedRecommendations.length > 0) {
+        console.log(`DEBUG: Found ${unusedRecommendations.length} unused regular recommendations`);
+        
+        // Add up to 10 more regular recommendations
+        const additionalRecs = unusedRecommendations.slice(0, 10);
+        console.log(`DEBUG: Adding ${additionalRecs.length} regular recommendations to the deck`);
+        
+        setDiscoverMovies(prevMovies => [...prevMovies, ...additionalRecs]);
+        return; // We've added recommendations, no need to continue
+      }
+    }
+    
+    // If we still need more movies, get them from the general pool
+    if (allMovies && allMovies.length > 0) {
+      console.log(`DEBUG: No unused recommendations, using general movie pool`);
+      
+      // Get movie IDs that are already in the deck
+      const currentMovieIds = new Set(discoverMovies.map(m => m.id));
+      
+      // Find movies that haven't been shown yet
       const availableMovies = allMovies.filter(m => !currentMovieIds.has(m.id));
       
       if (availableMovies.length > 0) {
-        // Shuffle and take up to 10 movies
-        const moreMovies = [...availableMovies]
+        // Get up to 10 random movies
+        const additionalMovies = availableMovies
           .sort(() => Math.random() - 0.5)
           .slice(0, 10);
         
-        console.log(`Adding ${moreMovies.length} more movies to discover deck`);
-        setDiscoverMovies(prevMovies => [...prevMovies, ...moreMovies]);
+        console.log(`DEBUG: Adding ${additionalMovies.length} general movies to the deck`);
+        setDiscoverMovies(prevMovies => [...prevMovies, ...additionalMovies]);
       } else {
-        console.log("No more unique movies available. Reshuffling existing movies.");
+        // If we have no more unique movies, shuffle and reuse some
+        console.log("DEBUG: No more unique movies available. Reshuffling existing movies.");
         const shuffled = [...allMovies].sort(() => Math.random() - 0.5);
-        setDiscoverMovies(prevMovies => [...prevMovies, ...shuffled.slice(0, 5)]);
+        const recycledMovies = shuffled.slice(0, 5);
+        console.log(`DEBUG: Re-adding ${recycledMovies.length} shuffled movies`);
+        
+        setDiscoverMovies(prevMovies => [...prevMovies, ...recycledMovies]);
       }
+    } else {
+      console.log("DEBUG: No movies available. Cannot load more.");
     }
+    
+    console.log("===== DEBUG: LOADING MOVIES COMPLETE =====");
   };
 
-  if (isLoading) {
+  if (isLoading || isInitializing) {
     return (
       <View style={styles.loadingContainer}>
         <ActivityIndicator size="large" color="#E50914" />
-        <Text style={styles.loadingText}>Loading movies to discover...</Text>
+        <Text style={styles.loadingText}>
+          {isInitializing ? 'Preparing your movie recommendations...' : 'Loading movies to discover...'}
+        </Text>
       </View>
     );
   }
@@ -2317,7 +2492,7 @@ const styles = StyleSheet.create({
     fontSize: 20,
   },
   container: {
-    flex: 1, 
+    flex: 1,
     backgroundColor: '#000',
   },
   profileContainer: {

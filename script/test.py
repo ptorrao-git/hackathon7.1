@@ -12,7 +12,7 @@ def make_connection():
             host='hackathon.c9g6wywk8mvf.eu-north-1.rds.amazonaws.com',
             user='script',
             password='vCNZzmHRVLxtZErdZGtY',
-            database='finalBDtests'
+            database='joynDBprod'
         )
         return connection
     except pymysql.MySQLError as err:
