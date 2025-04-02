@@ -2,11 +2,29 @@ import React, { useState, useCallback, useEffect, useContext, useRef } from 'rea
 import { NavigationContainer } from '@react-navigation/native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createStackNavigator } from '@react-navigation/stack';
-import { View, Text, StyleSheet, TextInput, FlatList, TouchableOpacity, Image, KeyboardAvoidingView, Platform, Alert, ScrollView, Dimensions, Animated, PanResponder, Modal, Pressable, ActivityIndicator } from 'react-native';
+import { useFocusEffect } from '@react-navigation/native';
+import { View, Text, StyleSheet, TextInput, FlatList, TouchableOpacity, Image, KeyboardAvoidingView, Platform, Alert, ScrollView, Dimensions, Animated, PanResponder, Modal, Pressable, ActivityIndicator, RefreshControl } from 'react-native';
 import Icon from 'react-native-vector-icons/Ionicons';
 import TinderCard from 'react-tinder-card';
-import { getMovies } from './src/services/movieService';
+import { 
+  getMovies, 
+  getUserRecommendations, 
+  updateUserRecommendations,
+  addToWatchlist,
+  removeFromWatchlist,
+  isInWatchlist,
+  addToWatchHistory,
+  addToNotRecommended,
+  searchUsersByEmail,
+  addFriend,
+  getFriends,
+  getFriendRecommendations,
+  getDiscoverUserRecommendations
+} from './src/services/movieService';
 import IconFeather from 'react-native-vector-icons/Feather';
+
+// API URL for all fetch requests
+const API_URL = 'http://localhost:3001';
 
 // First, install the database driver
 // For MySQL: npm install mysql2
@@ -17,9 +35,9 @@ import IconFeather from 'react-native-vector-icons/Feather';
 const dbConfig = {
   host: 'hackathon.c9g6wywk8mvf.eu-north-1.rds.amazonaws.com',
   port: '3306',
-  database: 'finalBDtests',
-  user: 'filferna',
-  password: 'thg8f3fx1',
+  database: 'joynDBprod',
+  user: 'script',
+  password: 'vCNZzmHRVLxtZErdZGtY',
   ssl: {
     minVersion: 'TLSv1.2',
     rejectUnauthorized: false
@@ -161,7 +179,95 @@ const ImageWithFallback = ({ path, style, fallbackStyle }) => {
 };
 
 // Create a MovieModal component
-const MovieModal = ({ movie, visible, onClose, onAddToList, isInWatchList }) => {
+const MovieModal = ({ movie, visible, onClose, onMovieAction }) => {
+  const [inWatchlist, setInWatchlist] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const { user } = useContext(AuthContext);
+  const { addToWatchList, removeFromWatchList } = useContext(WatchListContext);
+  const currentUserId = user?.userId || 1; // Default user ID, replace with actual user ID from auth context
+  
+  useEffect(() => {
+    // Check if the movie is in the user's watchlist
+    const checkWatchlist = async () => {
+      if (movie && movie.id) {
+        try {
+          const result = await isInWatchlist(currentUserId, movie.id);
+          setInWatchlist(result);
+        } catch (error) {
+          console.error('Error checking watchlist:', error);
+        }
+      }
+    };
+    
+    checkWatchlist();
+  }, [movie, currentUserId]);
+  
+  const handleAddToWatchlist = async () => {
+    if (!movie) return;
+    
+    setLoading(true);
+    try {
+      // Call the API directly through the service function
+      const result = await addToWatchlist(currentUserId, movie.id, movie.title);
+      console.log('Added to watchlist API response:', result);
+      
+      setInWatchlist(true);
+      Alert.alert('Success', 'Added to your watchlist');
+      
+      // Notify parent component that action was performed
+      if (onMovieAction) {
+        onMovieAction('watchlist', movie.id);
+      }
+    } catch (error) {
+      console.error('Error adding to watchlist:', error);
+      Alert.alert('Error', 'Failed to add to watchlist');
+    } finally {
+      setLoading(false);
+    }
+  };
+  
+  const handleRemoveFromWatchlist = async () => {
+    if (!movie) return;
+    
+    setLoading(true);
+    try {
+      // Use the service function directly instead of the context function
+      await removeFromWatchlist(currentUserId, movie.id);
+      setInWatchlist(false);
+      Alert.alert('Success', 'Removed from your watchlist');
+    } catch (error) {
+      console.error('Error removing from watchlist:', error);
+      Alert.alert('Error', 'Failed to remove from watchlist');
+    } finally {
+      setLoading(false);
+    }
+  };
+  
+  const handleWatch = async () => {
+    if (!movie) return;
+    
+    setLoading(true);
+    try {
+      // Call the API directly through the service function
+      const result = await addToWatchHistory(currentUserId, movie.id);
+      console.log('Added to watch history API response:', result);
+      
+      Alert.alert('Success', 'Added to your watch history');
+      
+      // Notify parent component that action was performed
+      if (onMovieAction) {
+        onMovieAction('watched', movie.id);
+      }
+      
+      onClose(); // Close modal after watching
+    } catch (error) {
+      console.error('Error adding to watch history:', error);
+      Alert.alert('Error', 'Failed to add to watch history');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   if (!movie) return null;
 
   return (
@@ -179,55 +285,60 @@ const MovieModal = ({ movie, visible, onClose, onAddToList, isInWatchList }) => 
           style={styles.modalContent}
           onPress={e => e.stopPropagation()}
         >
-          <Image
-            source={{ uri: movie.poster_url }}
+          <ImageWithFallback
+            path={movie.image?.startsWith('http') ? movie.image : movie.poster_path}
             style={styles.modalImage}
+            fallbackStyle={styles.modalImageFallback}
           />
           <ScrollView style={styles.modalInfo}>
             <Text style={styles.modalTitle}>{movie.title}</Text>
             
             <View style={styles.modalMetadata}>
-              <Text style={styles.modalYear}>{movie.year}</Text>
+              <Text style={styles.modalYear}>{movie.year || (movie.releaseDate ? movie.releaseDate.substring(0, 4) : 'N/A')}</Text>
               <Text style={styles.modalDot}>•</Text>
-              <Text style={styles.modalRating}>★ {movie.rating}</Text>
-              <Text style={styles.modalDot}>•</Text>
-              <Text style={styles.modalDuration}>2h 30m</Text>
+              <Text style={styles.modalRating}>★ {movie.rating || 'N/A'}</Text>
             </View>
 
             <Text style={styles.modalDescription}>
               {movie.description}
             </Text>
 
-            <View style={styles.modalButtons}>
-              <TouchableOpacity style={styles.modalPlayButton}>
-                <Icon name="play" size={20} color="#000" />
-                <Text style={styles.modalPlayButtonText}>Play</Text>
+            <View style={styles.modalButtonsContainer}>
+              <TouchableOpacity 
+                style={[styles.modalButton, styles.watchButton]}
+                onPress={handleWatch}
+                disabled={loading}
+              >
+                {loading ? (
+                  <ActivityIndicator size="small" color="#FFF" />
+                ) : (
+                  <>
+                    <Icon name="play" size={18} color="#FFF" />
+                    <Text style={styles.watchButtonText}>Watch</Text>
+                  </>
+                )}
               </TouchableOpacity>
               
               <TouchableOpacity 
-                style={[
-                  styles.modalListButton,
-                  isInWatchList && styles.modalListButtonActive
-                ]}
-                onPress={() => onAddToList(movie)}
-                disabled={isInWatchList}
+                style={[styles.modalButton, inWatchlist ? styles.removeButton : styles.addButton]}
+                onPress={inWatchlist ? handleRemoveFromWatchlist : handleAddToWatchlist}
+                disabled={loading}
               >
-                <Icon 
-                  name={isInWatchList ? "checkmark" : "add"} 
-                  size={24} 
-                  color="#FFF" 
-                />
-                <Text style={styles.modalListButtonText}>
-                  {isInWatchList ? 'Added' : 'My List'}
+                {loading ? (
+                  <ActivityIndicator size="small" color="#FFF" />
+                ) : (
+                  <>
+                    <Icon name={inWatchlist ? "remove" : "add"} size={18} color="#FFF" />
+                    <Text style={styles.addButtonText}>
+                      {inWatchlist ? 'Remove from List' : 'Add to List'}
                 </Text>
+                  </>
+                )}
               </TouchableOpacity>
             </View>
           </ScrollView>
 
-          <TouchableOpacity 
-            style={styles.closeButton}
-            onPress={onClose}
-          >
+          <TouchableOpacity style={styles.closeButton} onPress={onClose}>
             <Icon name="close" size={24} color="#FFF" />
           </TouchableOpacity>
         </Pressable>
@@ -267,46 +378,91 @@ const MovieContext = React.createContext();
 // Then create a provider component
 const MovieProvider = ({ children }) => {
   const [allMovies, setAllMovies] = useState([]);
-  const [featured, setFeatured] = useState(null);
-  const [categories, setCategories] = useState([]);
+  const [recommendedMovies, setRecommendedMovies] = useState([]);
+  const [friendRecommendations, setFriendRecommendations] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState(null);
+  const { user } = useContext(AuthContext);
 
+  // Fetch all movies on component mount
   useEffect(() => {
+    console.log("MovieProvider: Fetching all movies");
     fetchMovies();
   }, []);
 
+  // Load recommended movies when user changes
+  useEffect(() => {
+    if (user && user.userId) {
+      console.log(`MovieProvider: User detected (${user.userId}), fetching recommendations`);
+      fetchUserRecommendations(user.userId);
+      fetchFriendRecommendations(user.userId);
+    } else {
+      console.log("MovieProvider: No user detected, skipping recommendations");
+    }
+  }, [user]);
+
+  // Fetch all movies
   const fetchMovies = async () => {
-    try {
       setIsLoading(true);
-      setError(null);
-      
-      const response = await fetch('http://localhost:3001/api/movies');
-      if (!response.ok) {
-        throw new Error(`HTTP error! Status: ${response.status}`);
-      }
-      
-      const data = await response.json();
-      console.log('API Response:', data);
-      
-      if (data.featured) {
-        setFeatured(data.featured);
-      }
-      
-      if (data.categories && Array.isArray(data.categories)) {
-        setCategories(data.categories);
-        
-        // Collect all movies from all categories for discovery
-        const movies = data.categories.flatMap(category => category.data);
-        setAllMovies(movies);
+    try {
+      console.log("MovieProvider: Fetching all movies from API");
+      const data = await getMovies();
+      if (data && data.movies) {
+        console.log(`MovieProvider: Successfully fetched ${data.movies.length} movies`);
+        setAllMovies(data.movies);
       } else {
-        setError('Invalid data format from API');
+        console.log("MovieProvider: Received empty or invalid movie data");
       }
-    } catch (err) {
-      console.error('Error fetching movies:', err);
-      setError('Failed to load movies. Please try again later.');
-    } finally {
       setIsLoading(false);
+    } catch (error) {
+      console.error('MovieProvider Error fetching movies:', error);
+      setError('Failed to fetch movies');
+      setIsLoading(false);
+    }
+  };
+
+  // Fetch user recommendations
+  const fetchUserRecommendations = async (userId) => {
+    try {
+      console.log(`MovieProvider: Fetching recommendations for user ${userId}`);
+      const data = await getUserRecommendations(userId);
+      if (data && data.recommendations) {
+        console.log(`MovieProvider: Successfully fetched ${data.recommendations.length} user recommendations`);
+        setRecommendedMovies(data.recommendations);
+      } else {
+        console.log("MovieProvider: Received empty or invalid recommendations data");
+        setRecommendedMovies([]);
+      }
+    } catch (error) {
+      console.error('MovieProvider Error fetching user recommendations:', error);
+      setRecommendedMovies([]);
+    }
+  };
+  
+  // Fetch friend recommendations
+  const fetchFriendRecommendations = async (userId) => {
+    try {
+      console.log(`MovieProvider: Fetching friend recommendations for user ${userId}`);
+      const data = await getFriendRecommendations(userId);
+      if (data && data.recommendations) {
+        console.log(`MovieProvider: Successfully fetched ${data.recommendations.length} friend recommendations`);
+        setFriendRecommendations(data.recommendations);
+      } else {
+        console.log("MovieProvider: Received empty or invalid friend recommendations data");
+        setFriendRecommendations([]);
+      }
+    } catch (error) {
+      console.error('MovieProvider Error fetching friend recommendations:', error);
+      setFriendRecommendations([]);
+    }
+  };
+
+  // Update user recommendations
+  const handleUpdateUserRecommendations = async (userId, movieId, like) => {
+    try {
+      await updateUserRecommendations(userId, movieId, like);
+    } catch (error) {
+      console.error('Error updating user recommendations:', error);
     }
   };
 
@@ -314,11 +470,14 @@ const MovieProvider = ({ children }) => {
     <MovieContext.Provider 
       value={{ 
         allMovies, 
-        featured, 
-        categories, 
+        recommendedMovies,
+        friendRecommendations,
         isLoading, 
         error, 
-        fetchMovies 
+        fetchMovies,
+        fetchUserRecommendations,
+        fetchFriendRecommendations,
+        updateUserRecommendations: handleUpdateUserRecommendations
       }}
     >
       {children}
@@ -328,30 +487,141 @@ const MovieProvider = ({ children }) => {
 
 // Replace the existing HomeScreen with this enhanced version
 const HomeScreen = ({ navigation }) => {
-  const { featured, categories, isLoading, error, fetchMovies } = useContext(MovieContext);
-  const [modalVisible, setModalVisible] = useState(false);
+  const { allMovies } = useContext(MovieContext);
+  const { user } = useContext(AuthContext);
+  const currentUserId = user?.userId || 1;
+  const [featured, setFeatured] = useState(null);
+  const [categories, setCategories] = useState([]);
+  const [friendRecommendations, setFriendRecommendations] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [hasFriendRecs, setHasFriendRecs] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  const [error, setError] = useState(null);
   const [selectedMovie, setSelectedMovie] = useState(null);
-
-  const handleMoviePress = (movie) => {
+  const [modalVisible, setModalVisible] = useState(false);
+  
+  // Function to load friend recommendations
+  const loadFriendRecommendations = useCallback(async () => {
+    try {
+      const data = await getFriendRecommendations(currentUserId);
+      if (data.recommendations && data.recommendations.length > 0) {
+        setFriendRecommendations(data.recommendations);
+        setHasFriendRecs(true);
+      } else {
+        setFriendRecommendations([]);
+        setHasFriendRecs(false);
+      }
+    } catch (err) {
+      console.error('Failed to load friend recommendations:', err);
+      setFriendRecommendations([]);
+      setHasFriendRecs(false);
+    }
+  }, [currentUserId]);
+  
+  // Function to load recommendations
+  const loadRecommendations = useCallback(async () => {
+    try {
+      setLoading(true);
+      const data = await getUserRecommendations(currentUserId);
+      setFeatured(data.featured);
+      setCategories(data.categories);
+      
+      // Also load friend recommendations
+      await loadFriendRecommendations();
+      
+      setLoading(false);
+    } catch (err) {
+      console.error('Failed to load recommendations:', err);
+      setError('Failed to load content. Please try again.');
+      setLoading(false);
+      
+      // Fallback to regular movies if recommendations fail
+      try {
+        const fallbackData = await getMovies();
+        setFeatured(fallbackData.featured);
+        setCategories(fallbackData.categories);
+      } catch (fallbackErr) {
+        console.error('Fallback also failed:', fallbackErr);
+      }
+    }
+  }, [currentUserId, loadFriendRecommendations]);
+  
+  // Function to update recommendations
+  const updateRecommendations = useCallback(async () => {
+    try {
+      setRefreshing(true);
+      await updateUserRecommendations(currentUserId);
+      await loadRecommendations();
+      setRefreshing(false);
+    } catch (err) {
+      console.error('Failed to update recommendations:', err);
+      setError('Failed to update recommendations. Please try again.');
+      setRefreshing(false);
+    }
+  }, [currentUserId, loadRecommendations]);
+  
+  // Load recommendations on initial render
+  useEffect(() => {
+    loadRecommendations();
+  }, [loadRecommendations]);
+  
+  // Refresh recommendations when the screen comes into focus
+  useFocusEffect(
+    useCallback(() => {
+      loadRecommendations();
+    }, [loadRecommendations])
+  );
+  
+  // Pull to refresh function
+  const onRefresh = useCallback(() => {
+    updateRecommendations();
+  }, [updateRecommendations]);
+  
+  // Handle movie selection
+  const handleMoviePress = useCallback((movie) => {
     setSelectedMovie(movie);
     setModalVisible(true);
-  };
+  }, []);
+  
+  // Close modal
+  const handleCloseModal = useCallback(() => {
+    setModalVisible(false);
+  }, []);
+  
+  // Handle movie action (added to watchlist or watched)
+  const handleMovieAction = useCallback((action, movieId) => {
+    console.log(`Movie ${movieId} was ${action}`);
+    
+    // Refresh recommendations to get new content excluding this movie
+    loadRecommendations();
+    
+    // Remove the movie from the current categories and featured area
+    if (featured && featured.id === movieId) {
+      setFeatured(null);
+    }
+    
+    setCategories(prevCategories => 
+      prevCategories.map(category => ({
+        ...category,
+        data: category.data.filter(movie => movie.id !== movieId)
+      }))
+    );
+  }, [featured, loadRecommendations]);
 
-  if (isLoading) {
+  if (loading && !refreshing) {
     return (
       <View style={styles.loadingContainer}>
         <ActivityIndicator size="large" color="#E50914" />
-        <Text style={styles.loadingText}>Loading movies...</Text>
+        <Text style={styles.loadingText}>Loading recommendations...</Text>
       </View>
     );
   }
 
-  if (error) {
+  if (error && !featured && categories.length === 0) {
     return (
       <View style={styles.errorContainer}>
-        <IconFeather name="alert-circle" size={50} color="#E50914" />
         <Text style={styles.errorText}>{error}</Text>
-        <TouchableOpacity style={styles.retryButton} onPress={fetchMovies}>
+        <TouchableOpacity style={styles.retryButton} onPress={loadRecommendations}>
           <Text style={styles.retryButtonText}>Retry</Text>
         </TouchableOpacity>
       </View>
@@ -359,56 +629,140 @@ const HomeScreen = ({ navigation }) => {
   }
 
   return (
-    <ScrollView style={styles.homeContainer}>
+    <ScrollView 
+      style={styles.container}
+      contentContainerStyle={styles.contentContainer}
+      refreshControl={
+        <RefreshControl
+          refreshing={refreshing}
+          onRefresh={onRefresh}
+          colors={["#E50914"]}
+          tintColor="#E50914"
+        />
+      }
+    >
       {/* Featured Content */}
       {featured && (
-        <View style={styles.featuredContainer}>
-          <MovieImage movie={featured} />
-          <View style={styles.featuredOverlay}>
+        <TouchableOpacity
+          style={styles.featuredContainer}
+          onPress={() => handleMoviePress(featured)}
+        >
+          <ImageWithFallback
+            path={featured.image?.startsWith('http') ? featured.image : featured.poster_path}
+            style={styles.featuredImage}
+            fallbackStyle={styles.featuredImageFallback}
+          />
+          <View style={styles.featuredGradient} />
+          <View style={styles.featuredContent}>
             <Text style={styles.featuredTitle}>{featured.title}</Text>
-            <Text style={styles.featuredDescription}>
+            <Text style={styles.featuredDescription} numberOfLines={3}>
               {featured.description}
             </Text>
             <View style={styles.buttonContainer}>
-              <TouchableOpacity style={styles.playButton}>
-                <Icon name="play" size={20} color="#000" />
+              <TouchableOpacity 
+                style={styles.playButton}
+                onPress={() => handleMoviePress(featured)}
+              >
+                <Icon name="play" size={22} color="#000" />
                 <Text style={styles.playButtonText}>Play</Text>
               </TouchableOpacity>
               <TouchableOpacity 
-                style={styles.myListButton}
-                onPress={() => navigation.navigate('Profile')}
+                style={styles.listButton}
+                onPress={() => handleMoviePress(featured)}
               >
-                <Icon name="list" size={20} color="#FFF" />
-                <Text style={styles.myListButtonText}>My List</Text>
+                <Icon name="add" size={24} color="#FFF" />
+                <Text style={styles.listButtonText}>My List</Text>
               </TouchableOpacity>
             </View>
           </View>
-        </View>
+        </TouchableOpacity>
       )}
 
-      {/* Categories */}
-      {categories.map(category => (
-        <View key={category.id} style={styles.moviesSection}>
-          <Text style={styles.sectionTitle}>{category.title}</Text>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-            {category.data.map((movie) => (
+      {/* Movie Categories */}
+      {categories.map((category) => (
+        category.data.length > 0 && (
+          <View key={category.id} style={styles.categoryContainer}>
+            <Text style={styles.categoryTitle}>{category.title}</Text>
+            <FlatList
+              horizontal
+              data={category.data}
+              keyExtractor={(item) => item.id.toString()}
+              showsHorizontalScrollIndicator={false}
+              renderItem={({ item }) => (
               <TouchableOpacity 
-                key={movie.id}
-                onPress={() => handleMoviePress(movie)}
-                style={styles.movieItem}
-              >
-                <MovieImage movie={movie} />
+                  style={[
+                    styles.movieItem,
+                    category.isLarge && styles.largeMovieItem
+                  ]}
+                  onPress={() => handleMoviePress(item)}
+                >
+                  <ImageWithFallback
+                    path={item.image?.startsWith('http') ? item.image : item.poster_path}
+                    style={[
+                      styles.movieImage,
+                      category.isLarge && styles.largeMovieImage
+                    ]}
+                    fallbackStyle={[
+                      styles.movieImageFallback,
+                      category.isLarge && styles.largeMovieImageFallback
+                    ]}
+                  />
               </TouchableOpacity>
-            ))}
-          </ScrollView>
+              )}
+            />
         </View>
+        )
       ))}
 
-      {/* Movie Modal */}
+      {/* Friend Recommendations Section */}
+      <View style={styles.categoryContainer}>
+        <Text style={styles.categoryTitle}>Friend Recommendations</Text>
+        {hasFriendRecs ? (
+          <FlatList
+            horizontal
+            data={friendRecommendations}
+            keyExtractor={(item) => `friend-${item.id.toString()}`}
+            showsHorizontalScrollIndicator={false}
+            renderItem={({ item }) => (
+              <TouchableOpacity 
+                style={styles.movieItem}
+                onPress={() => handleMoviePress(item)}
+              >
+                <ImageWithFallback
+                  path={item.image?.startsWith('http') ? item.image : item.poster_path}
+                  style={styles.movieImage}
+                  fallbackStyle={styles.movieImageFallback}
+                />
+              </TouchableOpacity>
+            )}
+          />
+        ) : (
+          <View style={styles.emptyFriendRecsContainer}>
+            <Icon name="people" size={40} color="#666" />
+            <Text style={styles.emptyFriendRecsText}>
+              Your friends haven't watched anything yet
+            </Text>
+          </View>
+        )}
+      </View>
+
+      {/* Update Recommendations Button */}
+      <TouchableOpacity 
+        style={styles.updateButton}
+        onPress={updateRecommendations}
+        disabled={refreshing}
+      >
+        <Text style={styles.updateButtonText}>
+          {refreshing ? 'Updating...' : 'Update Recommendations'}
+        </Text>
+      </TouchableOpacity>
+      
+      {/* Movie Detail Modal */}
       <MovieModal
         movie={selectedMovie}
         visible={modalVisible}
-        onClose={() => setModalVisible(false)}
+        onClose={handleCloseModal}
+        onMovieAction={handleMovieAction}
       />
     </ScrollView>
   );
@@ -421,6 +775,8 @@ const SearchScreen = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState(null);
   const [hasSearched, setHasSearched] = useState(false);
+  const [selectedMovie, setSelectedMovie] = useState(null);
+  const [modalVisible, setModalVisible] = useState(false);
   
   // Debounce search to avoid too many API calls
   const debouncedSearch = useCallback(
@@ -475,17 +831,38 @@ const SearchScreen = () => {
     setHasSearched(false);
   };
   
-  const renderShow = ({ item }) => (
-    <TouchableOpacity style={styles.showItem}>
-      <View style={styles.showImageContainer}>
+  const handleMoviePress = (movie) => {
+    setSelectedMovie(movie);
+    setModalVisible(true);
+  };
+  
+  const handleCloseModal = () => {
+    setModalVisible(false);
+  };
+  
+  const handleMovieAction = (action, movieId) => {
+    // After movie action (e.g., adding to watchlist), you might want to update UI
+    console.log(`Movie action: ${action} for movie ${movieId}`);
+  };
+  
+  const renderMovie = ({ item }) => (
+    <TouchableOpacity 
+      style={styles.movieCard}
+      onPress={() => handleMoviePress(item)}
+    >
+      <View style={styles.movieImageContainer}>
         <ImageWithFallback 
-          path={item.image} 
-          style={styles.showImage}
-          fallbackStyle={styles.showImage}
+          path={item.image?.startsWith('http') ? item.image : item.poster_path} 
+          style={styles.movieImage}
+          fallbackStyle={styles.movieImageFallback}
         />
       </View>
-      <Text style={styles.showTitle} numberOfLines={1}>{item.title}</Text>
-      {item.year && <Text style={styles.showYear}>{item.year}</Text>}
+      <Text style={styles.movieTitle} numberOfLines={1}>{item.title}</Text>
+      {item.year || item.releaseDate ? (
+        <Text style={styles.movieYear}>
+          {item.year || (item.releaseDate ? new Date(item.releaseDate).getFullYear() : 'N/A')}
+        </Text>
+      ) : null}
     </TouchableOpacity>
   );
   
@@ -540,11 +917,11 @@ const SearchScreen = () => {
       ) : searchResults.length > 0 ? (
         <FlatList
           data={searchResults}
-          renderItem={renderShow}
-          keyExtractor={(item, index) => `${item.id || index}`}
+          renderItem={renderMovie}
+          keyExtractor={(item) => item.id?.toString() || Math.random().toString()}
           numColumns={3}
-          contentContainerStyle={styles.resultsList}
-          columnWrapperStyle={styles.row}
+          contentContainerStyle={styles.moviesGrid}
+          columnWrapperStyle={styles.movieRow}
         />
       ) : hasSearched ? (
         <View style={styles.noResults}>
@@ -560,6 +937,13 @@ const SearchScreen = () => {
           </Text>
         </View>
       )}
+      
+      <MovieModal
+        movie={selectedMovie}
+        visible={modalVisible}
+        onClose={handleCloseModal}
+        onMovieAction={handleMovieAction}
+      />
     </View>
   );
 };
@@ -570,13 +954,113 @@ const WatchListContext = React.createContext();
 // Create WatchListProvider
 export const WatchListProvider = ({ children }) => {
   const [watchList, setWatchList] = useState([]);
-
-  const addToWatchList = useCallback((movie) => {
-    setWatchList(prev => [...prev, movie]);
-  }, []);
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState(null);
+  const { user } = useContext(AuthContext);
+  
+  // Function to fetch user's watchlist from the database
+  const fetchWatchlist = useCallback(async () => {
+    if (!user || !user.userId) return;
+    
+    setIsLoading(true);
+    setError(null);
+    
+    try {
+      const userId = user.userId;
+      const response = await fetch(`http://localhost:3001/api/watchlist/${userId}`);
+      
+      if (!response.ok) {
+        throw new Error('Failed to fetch watchlist');
+      }
+      
+      const data = await response.json();
+      setWatchList(data.watchlist || []);
+    } catch (err) {
+      console.error('Error fetching watchlist:', err);
+      setError(err.message);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [user]);
+  
+  // Initial fetch when user is available
+  useEffect(() => {
+    if (user && user.userId) {
+      fetchWatchlist();
+    }
+  }, [user, fetchWatchlist]);
+  
+  // Add movie to watchlist
+  const addToWatchList = useCallback(async (movie) => {
+    if (!user || !user.userId || !movie || !movie.id) return;
+    
+    try {
+      const response = await fetch('http://localhost:3001/api/watchlist', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ 
+          userId: user.userId, 
+          movieId: movie.id 
+        }),
+      });
+      
+      if (!response.ok) {
+        throw new Error('Failed to add to watchlist');
+      }
+      
+      // Update local state only if API call was successful
+      setWatchList(prev => {
+        // Check if movie is already in watchlist
+        const exists = prev.some(item => item.id === movie.id);
+        if (!exists) {
+          return [...prev, movie];
+        }
+        return prev;
+      });
+    } catch (err) {
+      console.error('Error adding to watchlist:', err);
+    }
+  }, [user]);
+  
+  // Remove movie from watchlist
+  const removeFromWatchList = useCallback(async (movieId) => {
+    if (!user || !user.userId || !movieId) return;
+    
+    try {
+      const response = await fetch('http://localhost:3001/api/watchlist', {
+        method: 'DELETE',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ 
+          userId: user.userId, 
+          movieId: movieId 
+        }),
+      });
+      
+      if (!response.ok) {
+        throw new Error('Failed to remove from watchlist');
+      }
+      
+      // Update local state only if API call was successful
+      setWatchList(prev => prev.filter(movie => movie.id !== movieId));
+    } catch (err) {
+      console.error('Error removing from watchlist:', err);
+    }
+  }, [user]);
 
   return (
-    <WatchListContext.Provider value={{ watchList, addToWatchList }}>
+    <WatchListContext.Provider value={{ 
+      watchList, 
+      setWatchList,
+      addToWatchList, 
+      removeFromWatchList, 
+      fetchWatchlist,
+      isLoading,
+      error 
+    }}>
       {children}
     </WatchListContext.Provider>
   );
@@ -584,7 +1068,7 @@ export const WatchListProvider = ({ children }) => {
 
 // Update ProfileScreen
 const ProfileScreen = ({ navigation }) => {
-  const { watchList } = useContext(WatchListContext);
+  const { watchList, fetchWatchlist, removeFromWatchList, isLoading: watchlistLoading, error: watchlistError } = useContext(WatchListContext);
   const { user, logout } = useContext(AuthContext);
   const [userInfo, setUserInfo] = useState({
     name: 'Loading...',
@@ -597,6 +1081,31 @@ const ProfileScreen = ({ navigation }) => {
   });
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [activeTab, setActiveTab] = useState('watchlist'); // 'watchlist' or 'friends'
+  const [friends, setFriends] = useState([]);
+  const [searchEmail, setSearchEmail] = useState('');
+  const [searchResults, setSearchResults] = useState([]);
+  const [isSearching, setIsSearching] = useState(false);
+  const [friendsLoading, setFriendsLoading] = useState(false);
+  const [friendsError, setFriendsError] = useState(null);
+  const [selectedMovie, setSelectedMovie] = useState(null);
+  const [modalVisible, setModalVisible] = useState(false);
+  
+  console.log('ProfileScreen rendering, activeTab:', activeTab);
+  
+  // Log when tabs are switched
+  const switchTab = (tab) => {
+    console.log('Switching to tab:', tab);
+    setActiveTab(tab);
+  };
+  
+  // Refresh watchlist when the screen comes into focus
+  useFocusEffect(
+    useCallback(() => {
+      fetchWatchlist();
+      fetchFriends();
+    }, [fetchWatchlist])
+  );
   
   useEffect(() => {
     // Fetch user profile data
@@ -633,9 +1142,81 @@ const ProfileScreen = ({ navigation }) => {
     fetchUserProfile();
   }, [user]);
   
+  const fetchFriends = async () => {
+    if (!user || !user.userId) return;
+    
+    setFriendsLoading(true);
+    setFriendsError(null);
+    
+    try {
+      const response = await getFriends(user.userId);
+      setFriends(response.friends || []);
+    } catch (err) {
+      console.error('Error fetching friends:', err);
+      setFriendsError('Failed to load friends');
+    } finally {
+      setFriendsLoading(false);
+    }
+  };
+  
+  const handleSearchFriends = async () => {
+    if (!searchEmail.trim()) return;
+    
+    setIsSearching(true);
+    setSearchResults([]);
+    
+    try {
+      const response = await searchUsersByEmail(searchEmail.trim());
+      setSearchResults(response.users.filter(u => u.user_id !== user.userId) || []);
+    } catch (err) {
+      console.error('Error searching users:', err);
+      Alert.alert('Error', 'Failed to search users');
+    } finally {
+      setIsSearching(false);
+    }
+  };
+  
+  const handleAddFriend = async (friendId) => {
+    if (!user || !user.userId) return;
+    
+    try {
+      await addFriend(user.userId, friendId);
+      Alert.alert('Success', 'Friend added successfully');
+      // Clear search and refresh friends list
+      setSearchEmail('');
+      setSearchResults([]);
+      fetchFriends();
+    } catch (err) {
+      console.error('Error adding friend:', err);
+      Alert.alert('Error', err.message || 'Failed to add friend');
+    }
+  };
+  
   const handleLogout = () => {
     logout();
     navigation.replace('Login');
+  };
+  
+  const handlePlayMovie = (movie) => {
+    setSelectedMovie(movie);
+    setModalVisible(true);
+  };
+  
+  const handleCloseModal = () => {
+    setModalVisible(false);
+  };
+  
+  const handleMovieAction = (action, movieId) => {
+    console.log(`Movie action: ${action} for movie ${movieId}`);
+    // If necessary, refresh watchlist after action
+    if (action === 'watchlist') {
+      fetchWatchlist();
+    }
+  };
+  
+  const handleRemoveFromWatchlist = (movieId) => {
+    // Use the context function to remove from watchlist
+    removeFromWatchList(movieId);
   };
   
   if (isLoading) {
@@ -657,7 +1238,8 @@ const ProfileScreen = ({ navigation }) => {
   }
   
   return (
-    <View style={styles.profileContainer}>
+    <View style={styles.container}>
+      <ScrollView style={styles.profileContainer}>
       {/* Profile Header */}
       <View style={styles.profileHeader}>
         <Image 
@@ -666,7 +1248,6 @@ const ProfileScreen = ({ navigation }) => {
         />
         <View style={styles.profileInfo}>
           <Text style={styles.profileName}>{userInfo.email}</Text>
-          <Text style={styles.profileEmail}>Gender: {userInfo.gender}</Text>
           <Text style={styles.profilePlan}>{userInfo.plan}</Text>
           <Text style={styles.profileDate}>Birthday: {userInfo.birthday}</Text>
         </View>
@@ -674,92 +1255,243 @@ const ProfileScreen = ({ navigation }) => {
 
       {/* Action Buttons */}
       <View style={styles.actionButtons}>
-        <TouchableOpacity style={styles.actionButton}>
-          <Icon name="settings-outline" size={24} color="white" />
-          <Text style={styles.actionButtonText}>Settings</Text>
+          <TouchableOpacity style={styles.actionButton} onPress={handleLogout}>
+            <Icon name="log-out-outline" size={24} color="white" />
+            <Text style={styles.actionButtonText}>Sign Out</Text>
         </TouchableOpacity>
-        <TouchableOpacity style={styles.actionButton}>
-          <Icon name="help-circle-outline" size={24} color="white" />
-          <Text style={styles.actionButtonText}>Help</Text>
+        </View>
+        
+        {/* Tab Buttons */}
+        <View style={styles.tabButtonContainer}>
+          <TouchableOpacity 
+            style={[styles.tabBtn, activeTab === 'watchlist' && styles.activeTabBtn]} 
+            onPress={() => switchTab('watchlist')}
+          >
+            <Icon name="film-outline" size={24} color={activeTab === 'watchlist' ? '#E50914' : '#AAA'} />
+            <Text style={[styles.tabBtnText, activeTab === 'watchlist' && styles.activeTabBtnText]}>
+              Watchlist
+            </Text>
         </TouchableOpacity>
+          
         <TouchableOpacity 
-          style={styles.actionButton}
-          onPress={handleLogout}
-        >
-          <Icon name="log-out-outline" size={24} color="white" />
-          <Text style={styles.actionButtonText}>Sign Out</Text>
+            style={[styles.tabBtn, activeTab === 'friends' && styles.activeTabBtn]} 
+            onPress={() => switchTab('friends')}
+          >
+            <Icon name="people-outline" size={24} color={activeTab === 'friends' ? '#E50914' : '#AAA'} />
+            <Text style={[styles.tabBtnText, activeTab === 'friends' && styles.activeTabBtnText]}>
+              Friends
+            </Text>
         </TouchableOpacity>
       </View>
 
-      {/* Watch List */}
-      <View style={styles.watchListContainer}>
-        <Text style={styles.watchListTitle}>My Watch List</Text>
-        {watchList.length === 0 ? (
-          <View style={styles.emptyList}>
+        {/* Tab Content */}
+        <View style={styles.tabContentContainer}>
+          {activeTab === 'watchlist' ? (
+            <View style={styles.tabSection}>
+              <Text style={styles.sectionTitle}>My Watchlist</Text>
+              {watchlistLoading ? (
+                <View style={styles.loadingContainer}>
+                  <ActivityIndicator size="large" color="#E50914" />
+                  <Text style={styles.loadingText}>Loading watchlist...</Text>
+                </View>
+              ) : watchlistError ? (
+                <View style={styles.errorContainer}>
+                  <Icon name="alert-circle" size={50} color="#E50914" />
+                  <Text style={styles.errorText}>{watchlistError}</Text>
+                  <TouchableOpacity style={styles.retryButton} onPress={fetchWatchlist}>
+                    <Text style={styles.retryButtonText}>Retry</Text>
+                  </TouchableOpacity>
+                </View>
+              ) : watchList.length === 0 ? (
+                <View style={styles.emptyStateContainer}>
             <Icon name="film-outline" size={50} color="#666" />
-            <Text style={styles.emptyListText}>
-              Your watch list is empty.{'\n'}
-              Swipe right on movies to add them here!
+                  <Text style={styles.emptyListText}>No movies in your watchlist</Text>
+                  <Text style={styles.emptyListSubText}>Add movies from the Discover or Search tabs</Text>
+                </View>
+              ) : (
+                <View style={styles.moviesGrid}>
+                  {watchList.map((movie) => (
+                    <TouchableOpacity 
+                      key={movie.id.toString()} 
+                      style={styles.movieCard}
+                      onPress={() => handlePlayMovie(movie)}
+                    >
+                      <View style={styles.movieImageContainer}>
+                        <ImageWithFallback 
+                          path={movie.image?.startsWith('http') ? movie.image : movie.poster_path}
+                          style={styles.movieImage}
+                          fallbackStyle={styles.movieImageFallback}
+                        />
+                      </View>
+                      <Text style={styles.movieTitle} numberOfLines={1}>{movie.title}</Text>
+                      <Text style={styles.movieYear}>
+                        {movie.year || (movie.releaseDate ? new Date(movie.releaseDate).getFullYear() : 'N/A')}
             </Text>
+                      <TouchableOpacity 
+                        style={styles.removeIconButton}
+                        onPress={() => handleRemoveFromWatchlist(movie.id)}
+                      >
+                        <Icon name="close-circle" size={24} color="#E50914" />
+                      </TouchableOpacity>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              )}
           </View>
         ) : (
-          <View style={styles.watchList}>
-            {watchList.map((movie, index) => (
-              <View key={`${movie.id}-${index}`} style={styles.watchListItem}>
-                <Image 
-                  source={{ uri: movie.image }} 
-                  style={styles.watchListItemImage}
+            <View style={styles.tabSection}>
+              <Text style={styles.sectionTitle}>Find Friends</Text>
+              
+              <View style={styles.friendsSearchBar}>
+                <TextInput
+                  style={styles.friendsSearchInput}
+                  placeholder="Search friends by email..."
+                  placeholderTextColor="#999"
+                  value={searchEmail}
+                  onChangeText={setSearchEmail}
                 />
-                <View style={styles.watchListItemInfo}>
-                  <Text style={styles.watchListItemTitle}>{movie.title}</Text>
-                  <Text style={styles.watchListItemYear}>{movie.year}</Text>
+                <TouchableOpacity style={styles.searchButton} onPress={handleSearchFriends}>
+                  <Text style={styles.searchButtonText}>Search</Text>
+                </TouchableOpacity>
                 </View>
-                <TouchableOpacity style={styles.watchListItemPlay}>
-                  <Icon name="play-circle" size={30} color="#E50914" />
+              
+              {isSearching && (
+                <View style={styles.loadingContainer}>
+                  <ActivityIndicator size="large" color="#E50914" />
+                  <Text style={styles.loadingText}>Searching...</Text>
+                </View>
+              )}
+              
+              {searchResults.length > 0 && (
+                <View style={styles.searchResultsContainer}>
+                  <Text style={styles.searchResultsTitle}>Found Users:</Text>
+                  {searchResults.map(user => (
+                    <View key={user.user_id} style={styles.searchResultItem}>
+                      <View style={styles.searchResultAvatar}>
+                        <Text style={styles.searchResultAvatarText}>{user.email.charAt(0).toUpperCase()}</Text>
+                      </View>
+                      <Text style={styles.userEmail}>{user.email}</Text>
+                      <TouchableOpacity 
+                        style={styles.addButton} 
+                        onPress={() => handleAddFriend(user.user_id)}
+                      >
+                        <Text style={styles.addButtonText}>Add Friend</Text>
                 </TouchableOpacity>
               </View>
             ))}
           </View>
         )}
+              
+              {searchResults.length === 0 && searchEmail.length > 0 && !isSearching && (
+                <View style={styles.emptyStateContainer}>
+                  <Icon name="search" size={50} color="#666" />
+                  <Text style={styles.noResultsText}>No users found matching "{searchEmail}"</Text>
       </View>
+              )}
+              
+              <Text style={[styles.sectionTitle, {marginTop: 20}]}>My Friends</Text>
+              
+              {friendsLoading ? (
+                <View style={styles.loadingContainer}>
+                  <ActivityIndicator size="large" color="#E50914" />
+                  <Text style={styles.loadingText}>Loading friends...</Text>
+                </View>
+              ) : friendsError ? (
+                <View style={styles.errorContainer}>
+                  <Icon name="alert-circle" size={50} color="#E50914" />
+                  <Text style={styles.errorText}>{friendsError}</Text>
+                  <TouchableOpacity style={styles.retryButton} onPress={fetchFriends}>
+                    <Text style={styles.retryButtonText}>Retry</Text>
+                  </TouchableOpacity>
+                </View>
+              ) : friends.length === 0 ? (
+                <View style={styles.emptyStateContainer}>
+                  <Icon name="people" size={50} color="#666" />
+                  <Text style={styles.emptyListText}>You don't have any friends yet</Text>
+                  <Text style={styles.emptyListSubText}>Use the search above to find and add friends</Text>
+                </View>
+              ) : (
+                <View>
+                  {friends.map(item => (
+                    <View key={item.user_id.toString()} style={styles.friendItem}>
+                      <View style={styles.friendAvatar}>
+                        <Text style={styles.friendAvatarText}>{item.email.charAt(0).toUpperCase()}</Text>
+                      </View>
+                      <Text style={styles.friendEmail}>{item.email}</Text>
+                    </View>
+                  ))}
+                </View>
+              )}
+            </View>
+          )}
+        </View>
+      </ScrollView>
+      
+      <MovieModal
+        movie={selectedMovie}
+        visible={modalVisible}
+        onClose={handleCloseModal}
+        onMovieAction={handleMovieAction}
+      />
     </View>
   );
 };
 
-// Updated movie data with working image URLs
+// Define sample movies to use as fallback when API data is not available
 const SWIPE_MOVIES = [
   {
-    id: '1',
+    id: 'sample1',
     title: 'Stranger Things',
-    image: 'https://m.media-amazon.com/images/M/MV5BMDZkYmVhNjMtNWU4MC00MDQxLWE3MjYtZGMzZWI1ZjhlOWJmXkEyXkFqcGdeQXVyMTkxNjUyNQ@@._V1_.jpg',
-    year: '2016',
-    rating: '8.7',
-    description: 'When a young boy vanishes, a small town uncovers a mystery involving secret experiments.'
+    description: 'When a young boy vanishes, a small town uncovers a mystery involving secret experiments, terrifying supernatural forces, and one strange little girl.',
+    image: 'https://image.tmdb.org/t/p/w500/56v2KjBlU4XaOv9rVYEQypROD7P.jpg',
+    releaseDate: '2016-07-15',
+    rating: '8.7'
   },
   {
-    id: '2',
-    title: 'The Crown',
-    image: 'https://m.media-amazon.com/images/M/MV5BZmY0MzBlNjctNTRmNy00Njk3LWFjMzctMWQwZDAwMGJmY2MyXkEyXkFqcGdeQXVyMDM2NDM2MQ@@._V1_.jpg',
-    year: '2016',
-    rating: '8.7',
-    description: 'Follows the political rivalries and romance of Queen Elizabeth II\'s reign.'
+    id: 'sample2',
+    title: 'The Matrix',
+    description: 'A computer hacker learns from mysterious rebels about the true nature of his reality and his role in the war against its controllers.',
+    image: 'https://image.tmdb.org/t/p/w500/f89U3ADr1oiB1s9GkdPOEpXUk5H.jpg',
+    releaseDate: '1999-03-31',
+    rating: '8.4'
   },
   {
-    id: '3',
-    title: 'Wednesday',
-    image: 'https://m.media-amazon.com/images/M/MV5BM2ZmMjEyZmYtOGM4YS00YTNhLWE3ZDktYThhYjhkMmM2YzYyXkEyXkFqcGdeQXVyMTUzMTg2ODkz._V1_.jpg',
-    year: '2022',
-    rating: '8.2',
-    description: 'Follows Wednesday Addams years as a student at Nevermore Academy.'
+    id: 'sample3',
+    title: 'Inception',
+    description: 'A thief who steals corporate secrets through the use of dream-sharing technology is given the inverse task of planting an idea into the mind of a C.E.O.',
+    image: 'https://image.tmdb.org/t/p/w500/9gk7adHYeDvHkCSEqAvQNLV5Uge.jpg',
+    releaseDate: '2010-07-16',
+    rating: '8.8'
+  },
+  {
+    id: 'sample4',
+    title: 'The Shawshank Redemption',
+    description: 'Two imprisoned men bond over a number of years, finding solace and eventual redemption through acts of common decency.',
+    image: 'https://image.tmdb.org/t/p/w500/q6y0Go1tsGEsmtFryDOJo3dEmqu.jpg',
+    releaseDate: '1994-09-23',
+    rating: '9.3'
+  },
+  {
+    id: 'sample5',
+    title: 'Pulp Fiction',
+    description: 'The lives of two mob hitmen, a boxer, a gangster and his wife, and a pair of diner bandits intertwine in four tales of violence and redemption.',
+    image: 'https://image.tmdb.org/t/p/w500/d5iIlFn5s0ImszYzBPb8JPIfbXD.jpg',
+    releaseDate: '1994-10-14',
+    rating: '8.9'
   }
 ];
 
 const DiscoverScreen = ({ navigation }) => {
-  const { allMovies, isLoading, error, fetchMovies } = useContext(MovieContext);
+  const { allMovies, recommendedMovies, isLoading, error, fetchMovies } = useContext(MovieContext);
   const [currentIndex, setCurrentIndex] = useState(0);
-  const { addToWatchList } = useContext(WatchListContext);
+  const { user } = useContext(AuthContext);
+  const { watchList, setWatchList } = useContext(WatchListContext);
+  const currentUserId = user?.userId || 1; // Default user ID, replace with actual user ID from auth
   const [discoverMovies, setDiscoverMovies] = useState([]);
+  const [userDirectRecommendations, setUserDirectRecommendations] = useState([]);
+  const [friendRecommendations, setFriendRecommendations] = useState([]);
   const [lastDirection, setLastDirection] = useState(null);
+  const [isInitializing, setIsInitializing] = useState(true);
   
   // Refs for handling card movement
   const panResponderRef = useRef(null);
@@ -767,22 +1499,135 @@ const DiscoverScreen = ({ navigation }) => {
   const cardOpacity = useRef(new Animated.Value(1)).current;
   const nextCardScale = useRef(new Animated.Value(0.9)).current;
 
+  // Load friend recommendations
+  const loadFriendRecommendations = useCallback(async () => {
+    try {
+      console.log(`DEBUG: Fetching friend recommendations for user ${currentUserId}`);
+      const data = await getFriendRecommendations(currentUserId);
+      if (data.recommendations && data.recommendations.length > 0) {
+        console.log(`DEBUG: Received ${data.recommendations.length} friend recommendations`);
+        setFriendRecommendations(data.recommendations);
+        return data.recommendations;
+      }
+      console.log(`DEBUG: No friend recommendations received`);
+      return [];
+    } catch (err) {
+      console.error('Failed to load friend recommendations:', err);
+      return [];
+    }
+  }, [currentUserId]);
+  
+  // Load direct user recommendations from UserRecommended table
+  const loadUserDirectRecommendations = useCallback(async () => {
+    try {
+      console.log(`DEBUG: Fetching direct user recommendations for user ${currentUserId} from API`);
+      console.log(`DEBUG: API URL will be /api/recommendations/user-direct/${currentUserId}`);
+      
+      const data = await getDiscoverUserRecommendations(currentUserId);
+      console.log(`DEBUG: User direct recommendations API response:`, data);
+      
+      if (data.recommendations && data.recommendations.length > 0) {
+        console.log(`DEBUG: Received ${data.recommendations.length} direct user recommendations`);
+        console.log(`DEBUG: First recommendation: ${JSON.stringify(data.recommendations[0].title)}`);
+        setUserDirectRecommendations(data.recommendations);
+        return data.recommendations;
+      }
+      console.log(`DEBUG: No direct user recommendations received`);
+      return [];
+    } catch (err) {
+      console.error('Failed to load direct user recommendations:', err);
+      return [];
+    }
+  }, [currentUserId]);
+
   useEffect(() => {
     // Load movies when component mounts
-    if (allMovies && allMovies.length > 0) {
-      // Shuffle and prepare movies
-      const shuffled = [...allMovies].sort(() => Math.random() - 0.5);
-      setDiscoverMovies(shuffled);
-      console.log(`Loaded ${shuffled.length} movies for discover`);
-    } else {
-      // Fallback to sample movies
+    const initializeDiscoverMovies = async () => {
+      setIsInitializing(true);
+      console.log("===== DEBUG: INITIALIZING DISCOVER MOVIES =====");
+      console.log(`DEBUG: Current user ID: ${currentUserId}`);
+      
+      // First load direct user recommendations from UserRecommended table
+      const userRecs = await loadUserDirectRecommendations();
+      console.log(`DEBUG: Loaded ${userRecs.length} direct user recommendations`);
+      
+      // Then load friend recommendations
+      const friendRecs = await loadFriendRecommendations();
+      console.log(`DEBUG: Loaded ${friendRecs.length} friend recommendations`);
+      
+      // Start building the movie pool
+      let moviePool = [];
+      
+      // FIRST: Always prioritize user's direct recommendations from UserRecommended table
+      if (userRecs && userRecs.length > 0) {
+        console.log(`DEBUG: Using ${userRecs.length} direct user recommendations as primary source`);
+        moviePool = [...userRecs];
+      } 
+      // Fallback to the context recommendedMovies if direct query returns nothing
+      else if (recommendedMovies && recommendedMovies.length > 0) {
+        console.log(`DEBUG: No direct recommendations, using ${recommendedMovies.length} context recommendations`);
+        moviePool = [...recommendedMovies];
+      }
+      
+      // If we have no recommendations yet, use general movies
+      if (moviePool.length === 0 && allMovies && allMovies.length > 0) {
+        console.log(`DEBUG: No user recommendations available, using general movie pool`);
+        moviePool = [...allMovies];
+      }
+      
+      // SECOND: Add friend recommendations at regular intervals if we have some
+      if (friendRecs && friendRecs.length > 0 && moviePool.length > 0) {
+        console.log(`DEBUG: Processing ${friendRecs.length} friend recommendations`);
+        
+        // Filter out friend recommendations that duplicate user recommendations
+        const userRecIds = new Set(moviePool.map(m => m.id));
+        const uniqueFriendRecs = friendRecs.filter(m => !userRecIds.has(m.id));
+        console.log(`DEBUG: ${uniqueFriendRecs.length} friend recommendations are unique`);
+        
+        if (uniqueFriendRecs.length > 0) {
+          // Select about 20% of friend recommendations to mix in
+          const selectedFriendRecs = uniqueFriendRecs
+            .sort(() => Math.random() - 0.5)
+            .slice(0, Math.max(2, Math.floor(uniqueFriendRecs.length * 0.2)));
+            
+          // Reserve the first 5 slots for user recommendations only
+          const frontBatch = moviePool.slice(0, 5);
+          const middleBatch = moviePool.slice(5, 20);
+          const remainingBatch = moviePool.slice(20);
+          
+          // Mix friend recommendations into middle batch at regular intervals
+          if (middleBatch.length > 0 && selectedFriendRecs.length > 0) {
+            const spacing = Math.max(3, Math.floor(middleBatch.length / selectedFriendRecs.length));
+            selectedFriendRecs.forEach((movie, index) => {
+              const insertPosition = Math.min(index * spacing, middleBatch.length);
+              middleBatch.splice(insertPosition, 0, movie);
+            });
+          }
+          
+          // Reassemble the movie pool
+          moviePool = [...frontBatch, ...middleBatch, ...remainingBatch];
+          console.log(`DEBUG: Mixed in ${selectedFriendRecs.length} friend recommendations`);
+        }
+      }
+      
+      // If we still have no movies, use the sample movies as last resort
+      if (moviePool.length === 0) {
+        console.log("DEBUG: No movies found in any source, using fallback samples");
       setDiscoverMovies(SWIPE_MOVIES);
-      console.log("Using fallback movies");
-    }
+      } else {
+        console.log(`DEBUG: Final movie pool contains ${moviePool.length} movies`);
+        setDiscoverMovies(moviePool);
+      }
+      
+      setIsInitializing(false);
+      console.log("===== DEBUG: INITIALIZATION COMPLETE =====");
+    };
+    
+    initializeDiscoverMovies();
 
     // Reset position when currentIndex changes
     resetPosition();
-  }, [allMovies]);
+  }, [currentUserId, loadUserDirectRecommendations, loadFriendRecommendations, allMovies, recommendedMovies]);
 
   useEffect(() => {
     // Create the pan responder for drag gestures
@@ -827,48 +1672,123 @@ const DiscoverScreen = ({ navigation }) => {
 
   // Swipe the card left
   const swipeLeft = () => {
+    console.log("DEBUG: Swiping left - animation starting");
+    console.log(`DEBUG: Current movie: ${JSON.stringify({
+      id: discoverMovies[currentIndex]?.id,
+      title: discoverMovies[currentIndex]?.title,
+    })}`);
+    
     Animated.timing(position, {
       toValue: { x: -500, y: 0 },
       duration: 300,
       useNativeDriver: false,
     }).start(() => {
-      swiped('left');
+      console.log("DEBUG: Left swipe animation completed");
+      swiped('left', discoverMovies[currentIndex]);
       resetPosition();
     });
   };
 
   // Swipe the card right
   const swipeRight = () => {
+    console.log("DEBUG: Swiping right - animation starting");
+    console.log(`DEBUG: Current movie: ${JSON.stringify({
+      id: discoverMovies[currentIndex]?.id,
+      title: discoverMovies[currentIndex]?.title,
+    })}`);
+    
     Animated.timing(position, {
       toValue: { x: 500, y: 0 },
       duration: 300,
       useNativeDriver: false,
     }).start(() => {
-      swiped('right');
+      console.log("DEBUG: Right swipe animation completed");
+      swiped('right', discoverMovies[currentIndex]);
       resetPosition();
     });
   };
 
-  const swiped = (direction) => {
-    console.log(`Swiped ${direction}`);
+  const swiped = async (direction, movie) => {
+    console.log("===== DEBUG: SWIPE ACTION =====");
+    console.log(`Direction: ${direction}`);
+    console.log(`Movie: ${movie ? JSON.stringify({
+      id: movie.id,
+      title: movie.title,
+      type: typeof movie.id
+    }) : 'unknown movie'}`);
+    console.log(`User ID: ${currentUserId}, type: ${typeof currentUserId}`);
+    
     setLastDirection(direction);
     
-    // Add to watchlist if swiped right
-    if (direction === 'right' && currentIndex < discoverMovies.length) {
-      const movie = discoverMovies[currentIndex];
-      console.log('Adding to watchlist:', movie.title);
-      addToWatchList(movie);
+    if (!movie || !movie.id) {
+      console.error('DEBUG: Invalid movie object:', movie);
+      return;
     }
     
+    if (direction === 'right') {
+      console.log(`DEBUG: Adding to watchlist: ${movie.title} (ID: ${movie.id})`);
+      try {
+        // Call the API directly through the service function
+        console.log(`DEBUG: Calling addToWatchlist with params:`, {
+          userId: currentUserId,
+          movieId: movie.id,
+          movieTitle: movie.title
+        });
+        
+        const result = await addToWatchlist(currentUserId, movie.id, movie.title);
+        console.log('DEBUG: Watchlist API response:', result);
+        
+        // Update the local state after successful API call
+        if (result) {
+          console.log('DEBUG: API call successful, updating local state');
+          // Add to the UI state
+          setWatchList(prev => {
+            // Check if movie is already in watchlist
+            const exists = prev.some(item => item.id === movie.id);
+            if (!exists) {
+              console.log(`DEBUG: Movie ${movie.id} not in watchlist, adding it`);
+              return [...prev, movie];
+            }
+            console.log(`DEBUG: Movie ${movie.id} already in watchlist`);
+            return prev;
+          });
+          console.log(`DEBUG: Successfully added ${movie.title} to watchlist`);
+        }
+      } catch (error) {
+        console.error('DEBUG: Error adding to watchlist:', error);
+      }
+    } else if (direction === 'left') {
+      console.log(`DEBUG: Marking as not recommended: ${movie.title} (ID: ${movie.id})`);
+      try {
+        // Call the addToNotRecommended service function
+        console.log(`DEBUG: Calling addToNotRecommended with params:`, {
+          userId: currentUserId,
+          movieId: movie.id,
+          movieTitle: movie.title
+        });
+        
+        const result = await addToNotRecommended(currentUserId, movie.id, movie.title);
+        console.log('DEBUG: Not Recommended API response:', result);
+        
+        if (result && result.success) {
+          console.log(`DEBUG: Successfully marked ${movie.title} as not recommended`);
+        }
+      } catch (error) {
+        console.error('DEBUG: Error marking as not recommended:', error);
+      }
+    }
+    
+    console.log(`DEBUG: Moving to next card. Current index: ${currentIndex}, new index: ${currentIndex + 1}`);
     // Move to next card
     setCurrentIndex(prevIndex => prevIndex + 1);
     
-    // If we're near the end of our cards, load more
-    if (currentIndex >= discoverMovies.length - 3 && allMovies.length > 0) {
-      console.log("Near the end, loading more movies");
-      const moreMovies = [...allMovies].sort(() => Math.random() - 0.5);
-      setDiscoverMovies(prevMovies => [...prevMovies, ...moreMovies.slice(0, 10)]);
+    // Load more movies if we're nearing the end
+    if (currentIndex >= discoverMovies.length - 5) {
+      console.log(`DEBUG: Near end of card deck (${discoverMovies.length - currentIndex} cards left). Loading more...`);
+      loadMoreDiscoverMovies();
     }
+    
+    console.log("===== DEBUG: SWIPE ACTION COMPLETE =====");
   };
 
   // Card rotation based on drag position
@@ -896,11 +1816,91 @@ const DiscoverScreen = ({ navigation }) => {
     opacity: nextCardScale,
   };
 
-  if (isLoading) {
+  const loadMoreDiscoverMovies = () => {
+    console.log("===== DEBUG: LOADING MORE MOVIES =====");
+    
+    // First check if we have unused direct user recommendations
+    if (userDirectRecommendations && userDirectRecommendations.length > 0) {
+      console.log(`DEBUG: Checking for unused direct user recommendations`);
+      
+      // Get movie IDs that are already in the deck
+      const currentMovieIds = new Set(discoverMovies.map(m => m.id));
+      
+      // Find user recommendations that haven't been shown yet
+      const unusedDirectRecs = userDirectRecommendations.filter(m => !currentMovieIds.has(m.id));
+      
+      if (unusedDirectRecs.length > 0) {
+        console.log(`DEBUG: Found ${unusedDirectRecs.length} unused direct user recommendations`);
+        
+        // Add up to 10 more direct recommendations
+        const additionalRecs = unusedDirectRecs.slice(0, 10);
+        console.log(`DEBUG: Adding ${additionalRecs.length} direct user recommendations to the deck`);
+        
+        setDiscoverMovies(prevMovies => [...prevMovies, ...additionalRecs]);
+        return; // We've added user recommendations, no need to continue
+      }
+    }
+    
+    // If no unused direct recommendations, check for regular recommendations in context
+    if (recommendedMovies && recommendedMovies.length > 0) {
+      console.log(`DEBUG: Checking for unused regular recommendations`);
+      
+      const currentMovieIds = new Set(discoverMovies.map(m => m.id));
+      const unusedRecommendations = recommendedMovies.filter(m => !currentMovieIds.has(m.id));
+      
+      if (unusedRecommendations.length > 0) {
+        console.log(`DEBUG: Found ${unusedRecommendations.length} unused regular recommendations`);
+        
+        // Add up to 10 more regular recommendations
+        const additionalRecs = unusedRecommendations.slice(0, 10);
+        console.log(`DEBUG: Adding ${additionalRecs.length} regular recommendations to the deck`);
+        
+        setDiscoverMovies(prevMovies => [...prevMovies, ...additionalRecs]);
+        return; // We've added recommendations, no need to continue
+      }
+    }
+    
+    // If we still need more movies, get them from the general pool
+    if (allMovies && allMovies.length > 0) {
+      console.log(`DEBUG: No unused recommendations, using general movie pool`);
+      
+      // Get movie IDs that are already in the deck
+      const currentMovieIds = new Set(discoverMovies.map(m => m.id));
+      
+      // Find movies that haven't been shown yet
+      const availableMovies = allMovies.filter(m => !currentMovieIds.has(m.id));
+      
+      if (availableMovies.length > 0) {
+        // Get up to 10 random movies
+        const additionalMovies = availableMovies
+          .sort(() => Math.random() - 0.5)
+          .slice(0, 10);
+        
+        console.log(`DEBUG: Adding ${additionalMovies.length} general movies to the deck`);
+        setDiscoverMovies(prevMovies => [...prevMovies, ...additionalMovies]);
+      } else {
+        // If we have no more unique movies, shuffle and reuse some
+        console.log("DEBUG: No more unique movies available. Reshuffling existing movies.");
+        const shuffled = [...allMovies].sort(() => Math.random() - 0.5);
+        const recycledMovies = shuffled.slice(0, 5);
+        console.log(`DEBUG: Re-adding ${recycledMovies.length} shuffled movies`);
+        
+        setDiscoverMovies(prevMovies => [...prevMovies, ...recycledMovies]);
+      }
+    } else {
+      console.log("DEBUG: No movies available. Cannot load more.");
+    }
+    
+    console.log("===== DEBUG: LOADING MOVIES COMPLETE =====");
+  };
+
+  if (isLoading || isInitializing) {
     return (
       <View style={styles.loadingContainer}>
         <ActivityIndicator size="large" color="#E50914" />
-        <Text style={styles.loadingText}>Loading movies to discover...</Text>
+        <Text style={styles.loadingText}>
+          {isInitializing ? 'Preparing your movie recommendations...' : 'Loading movies to discover...'}
+        </Text>
       </View>
     );
   }
@@ -987,9 +1987,12 @@ const DiscoverScreen = ({ navigation }) => {
             />
             <View style={styles.cardContent}>
               <Text style={styles.cardTitle}>{discoverMovies[currentIndex].title}</Text>
+              <Text style={styles.cardYear}>{discoverMovies[currentIndex].releaseDate ? new Date(discoverMovies[currentIndex].releaseDate).getFullYear() : 'N/A'}</Text>
               <Text style={styles.cardDescription} numberOfLines={3}>
                 {discoverMovies[currentIndex].description || 'No description available'}
               </Text>
+              {/* For debugging - check movie object structure */}
+              {currentIndex < discoverMovies.length && console.log('Current movie object:', JSON.stringify(discoverMovies[currentIndex]))}
             </View>
           </View>
         </Animated.View>
@@ -1013,7 +2016,7 @@ const DiscoverScreen = ({ navigation }) => {
       {lastDirection && (
         <View style={styles.swipeIndicator}>
           <Text style={styles.swipeText}>
-            {lastDirection === 'right' ? 'Added to watchlist' : 'Skipped'}
+            {lastDirection === 'right' ? 'Added to watchlist' : 'Not interested'}
           </Text>
         </View>
       )}
@@ -1108,7 +2111,7 @@ const LoginScreen = ({ navigation }) => {
   return (
     <View style={styles.loginContainer}>
       <View style={styles.logoContainer}>
-        <Text style={styles.logoText}>NETFLIX</Text>
+        <Text style={styles.logoText}>JOYN</Text>
       </View>
       
       <View style={styles.formContainer}>
@@ -1150,7 +2153,7 @@ const LoginScreen = ({ navigation }) => {
         </TouchableOpacity>
         
         <View style={styles.signupContainer}>
-          <Text style={styles.signupText}>New to Netflix? </Text>
+          <Text style={styles.signupText}>New to JOYN? </Text>
           <TouchableOpacity onPress={() => navigation.navigate('Signup')}>
             <Text style={styles.signupLink}>Sign up now</Text>
           </TouchableOpacity>
@@ -1378,7 +2381,7 @@ const SignupScreen = ({ navigation }) => {
   return (
     <View style={styles.loginContainer}>
       <View style={styles.logoContainer}>
-        <Text style={styles.logoText}>NETFLIX</Text>
+        <Text style={styles.logoText}>JOYN</Text>
       </View>
       
       <View style={styles.formContainer}>
@@ -1492,6 +2495,25 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#000',
   },
+  profileContainer: {
+    flex: 1,
+    backgroundColor: '#000',
+    padding: 20,
+  },
+  tabContentContainer: {
+    flex: 1,
+    backgroundColor: '#000',
+  },
+  tabSection: {
+    backgroundColor: '#000',
+    marginBottom: 20,
+  },
+  emptyStateContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 20,
+    marginTop: 10,
+  },
   cardContainer: {
     flex: 1,
     alignItems: 'center',
@@ -1587,11 +2609,12 @@ const styles = StyleSheet.create({
   searchContainer: {
     flex: 1,
     backgroundColor: '#000',
-    padding: 10,
+    padding: 15,
   },
   searchBarContainer: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
     backgroundColor: '#333',
     borderRadius: 8,
     paddingHorizontal: 10,
@@ -1602,7 +2625,7 @@ const styles = StyleSheet.create({
   },
   searchInput: {
     flex: 1,
-    height: 40,
+    height: '100vh',
     color: 'white',
     fontSize: 16,
   },
@@ -1615,19 +2638,18 @@ const styles = StyleSheet.create({
   },
   row: {
     flex: 1,
-    justifyContent: 'space-between',
-    marginVertical: 6,
+    justifyContent: 'center',
+    marginVertical: 5,
     width: '100%',
   },
   showItem: {
-    width: '29%',
+    width: '100%',
     marginHorizontal: 2,
     marginVertical: 5,
     alignItems: 'center',
   },
   showImageContainer: {
     width: '100%',
-    aspectRatio: 2/3,
     marginBottom: 4,
     borderRadius: 4,
     overflow: 'hidden',
@@ -1812,15 +2834,9 @@ const styles = StyleSheet.create({
     color: 'white',
     fontSize: 14,
   },
-  profileContainer: {
-    flex: 1,
-    backgroundColor: '#000',
-    padding: 20,
-  },
   profileHeader: {
     flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 30,
+    marginBottom: 20,
   },
   avatar: {
     width: 80,
@@ -1830,16 +2846,17 @@ const styles = StyleSheet.create({
   },
   profileInfo: {
     flex: 1,
+    justifyContent: 'center',
   },
   profileName: {
     color: 'white',
-    fontSize: 24,
+    fontSize: 20,
     fontWeight: 'bold',
     marginBottom: 5,
   },
   profileEmail: {
     color: '#999',
-    marginBottom: 5,
+    marginBottom: 2,
   },
   profilePlan: {
     color: '#E50914',
@@ -1847,13 +2864,17 @@ const styles = StyleSheet.create({
     marginBottom: 2,
   },
   profileDate: {
-    color: '#666',
+    color: '#999',
     fontSize: 12,
   },
   actionButtons: {
     flexDirection: 'row',
     justifyContent: 'space-around',
-    marginBottom: 30,
+    marginBottom: 20,
+    paddingVertical: 10,
+    borderTopWidth: 1,
+    borderBottomWidth: 1,
+    borderColor: '#333',
   },
   actionButton: {
     alignItems: 'center',
@@ -1861,6 +2882,7 @@ const styles = StyleSheet.create({
   actionButtonText: {
     color: 'white',
     marginTop: 5,
+    fontSize: 12,
   },
   watchListContainer: {
     flex: 1,
@@ -1887,11 +2909,12 @@ const styles = StyleSheet.create({
   },
   watchListItem: {
     flexDirection: 'row',
+    justifyContent: 'space-between',
     alignItems: 'center',
-    backgroundColor: '#333',
-    borderRadius: 10,
-    marginBottom: 10,
-    padding: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: '#333',
+    paddingVertical: 12,
+    paddingHorizontal: 10,
   },
   watchListItemImage: {
     width: 60,
@@ -1916,75 +2939,106 @@ const styles = StyleSheet.create({
   },
   modalOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.8)',
+    backgroundColor: 'rgba(0,0,0,0.8)',
     justifyContent: 'center',
     alignItems: 'center',
   },
   modalContent: {
-    width: '90%',
-    maxWidth: 400,
     backgroundColor: '#181818',
-    borderRadius: 8,
+    width: '90%',
+    maxHeight: '80%',
+    borderRadius: 10,
     overflow: 'hidden',
+    position: 'relative',
   },
   modalImage: {
     width: '100%',
     height: 300,
     resizeMode: 'cover',
   },
+  modalImageFallback: {
+    width: '100%',
+    height: 300,
+    backgroundColor: '#333',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
   modalInfo: {
     padding: 20,
+    maxHeight: 300,
   },
   modalTitle: {
     color: '#FFF',
     fontSize: 24,
     fontWeight: 'bold',
-    marginBottom: 10,
+    marginBottom: 8,
   },
   modalMetadata: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 15,
+    marginBottom: 16,
   },
   modalYear: {
-    color: '#999',
+    color: '#AAA',
+    fontSize: 14,
   },
   modalDot: {
-    color: '#999',
-    marginHorizontal: 8,
+    color: '#AAA',
+    marginHorizontal: 5,
   },
   modalRating: {
-    color: '#FFF',
-  },
-  modalDuration: {
-    color: '#999',
+    color: '#AAA',
+    fontSize: 14,
   },
   modalDescription: {
     color: '#CCC',
-    fontSize: 14,
-    lineHeight: 20,
+    fontSize: 16,
+    lineHeight: 24,
     marginBottom: 20,
   },
-  modalButtons: {
+  modalButtonsContainer: {
     flexDirection: 'row',
     justifyContent: 'space-between',
+    marginTop: 20,
   },
-  modalPlayButton: {
+  modalButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#FFF',
-    paddingHorizontal: 24,
-    paddingVertical: 12,
-    borderRadius: 4,
-    flex: 1,
-    marginRight: 10,
     justifyContent: 'center',
+    paddingVertical: 12,
+    borderRadius: 5,
+    flex: 1,
+    marginHorizontal: 5,
   },
-  modalPlayButtonText: {
-    color: '#000',
-    marginLeft: 8,
-    fontSize: 16,
+  watchButton: {
+    backgroundColor: '#E50914',
+  },
+  watchButtonText: {
+    color: '#FFF',
     fontWeight: 'bold',
+    marginLeft: 5,
+  },
+  addButton: {
+    backgroundColor: '#333',
+  },
+  removeButton: {
+    backgroundColor: '#555',
+  },
+  addButtonText: {
+    color: '#FFF',
+    fontWeight: 'bold',
+    marginLeft: 5,
+  },
+  closeButton: {
+    position: 'absolute',
+    top: 10,
+    right: 10,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    borderRadius: 20,
+    width: 40,
+    height: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   modalListButton: {
     flexDirection: 'row',
@@ -2001,14 +3055,6 @@ const styles = StyleSheet.create({
     marginLeft: 8,
     fontSize: 16,
     fontWeight: 'bold',
-  },
-  closeButton: {
-    position: 'absolute',
-    top: 10,
-    right: 10,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
-    borderRadius: 20,
-    padding: 8,
   },
   modalListButtonActive: {
     backgroundColor: '#555',
@@ -2252,6 +3298,589 @@ const styles = StyleSheet.create({
     width: '100%',
     height: '100%',
     resizeMode: 'cover',
+  },
+  // Styles for recommendation screen
+  updateButton: {
+    backgroundColor: '#E50914',
+    padding: 12,
+    borderRadius: 4,
+    marginHorizontal: 20,
+    marginVertical: 20,
+    alignItems: 'center',
+  },
+  updateButtonText: {
+    color: '#FFF',
+    fontWeight: 'bold',
+    fontSize: 16,
+  },
+  contentContainer: {
+    paddingBottom: 30,
+  },
+  categoryContainer: {
+    marginTop: 20,
+  },
+  categoryTitle: {
+    color: '#FFF',
+    fontSize: 18,
+    fontWeight: 'bold',
+    marginLeft: 10,
+    marginBottom: 10,
+  },
+  movieItem: {
+    marginHorizontal: 5,
+    width: 120,
+    height: 180,
+    borderRadius: 4,
+    overflow: 'hidden',
+  },
+  largeMovieItem: {
+    width: 160,
+    height: 240,
+  },
+  movieImage: {
+    width: '100%',
+    height: '100%',
+  },
+  movieImageFallback: {
+    width: '100%',
+    height: '100%',
+    backgroundColor: '#333',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  largeMovieImage: {
+    width: '100%',
+    height: '100%',
+  },
+  largeMovieImageFallback: {
+    width: '100%',
+    height: '100%',
+  },
+  featuredImage: {
+    width: '100%',
+    height: 500,
+    position: 'absolute',
+  },
+  featuredImageFallback: {
+    width: '100%',
+    height: 500,
+    backgroundColor: '#333',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  featuredGradient: {
+    position: 'absolute',
+    width: '100%',
+    height: 500,
+    backgroundColor: 'rgba(0,0,0,0.7)',
+  },
+  featuredContent: {
+    padding: 20,
+    marginTop: 300,
+  },
+  loadingText: {
+    color: '#FFF',
+    marginTop: 10,
+  },
+  // Additional styles for the updated watchlist UI
+  watchListHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  watchListItemImageFallback: {
+    width: 80,
+    height: 120,
+    borderRadius: 4,
+    backgroundColor: '#333',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  watchListItemRating: {
+    color: '#AAA',
+    fontSize: 12,
+    marginTop: 2,
+  },
+  watchListItemActions: {
+    flexDirection: 'column',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    height: '100%',
+    paddingVertical: 10,
+  },
+  watchListItemRemove: {
+    marginTop: 10,
+  },
+  retryButton: {
+    backgroundColor: '#E50914',
+    paddingHorizontal: 20,
+    paddingVertical: 8,
+    borderRadius: 4,
+    marginTop: 10,
+  },
+  retryButtonText: {
+    color: '#FFF',
+    fontWeight: 'bold',
+  },
+  tabContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    marginVertical: 15,
+    borderBottomWidth: 1,
+    borderBottomColor: '#333',
+    backgroundColor: '#111',
+    padding: 10,
+  },
+  tabButton: {
+    padding: 12,
+    borderBottomWidth: 3,
+    borderBottomColor: 'transparent',
+    minWidth: 120,
+    alignItems: 'center',
+  },
+  activeTabButton: {
+    borderBottomColor: '#E50914',
+  },
+  tabButtonText: {
+    color: '#999',
+    fontSize: 16,
+    fontWeight: '500',
+  },
+  activeTabButtonText: {
+    color: '#E50914',
+    fontWeight: 'bold',
+  },
+  friendsContainer: {
+    flex: 1,
+    marginTop: 10,
+  },
+  friendsSearchContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginVertical: 10,
+    paddingHorizontal: 10,
+    borderWidth: 1,
+    borderColor: '#444',
+    borderRadius: 8,
+    backgroundColor: '#222',
+    overflow: 'hidden',
+    height: 45,
+    width: '100%',
+  },
+  friendsSearchInput: {
+    flex: 1,
+    height: 40,
+    color: 'white',
+    fontSize: 16,
+    marginRight: 10,
+  },
+  friendsSearchButton: {
+    padding: 10,
+    borderRadius: 5,
+    backgroundColor: '#E50914',
+  },
+  searchResultsContainer: {
+    marginTop: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 15,
+    borderWidth: 1,
+    borderColor: '#333',
+    borderRadius: 10,
+    marginBottom: 15,
+    backgroundColor: '#222',
+  },
+  searchResultsTitle: {
+    color: 'white',
+    fontSize: 18,
+    fontWeight: 'bold',
+    marginBottom: 15,
+    borderBottomWidth: 1,
+    borderBottomColor: '#333',
+    paddingBottom: 8,
+  },
+  searchResultItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderBottomWidth: 1,
+    borderBottomColor: '#333',
+    paddingVertical: 15,
+    paddingHorizontal: 10,
+  },
+  userEmail: {
+    color: 'white',
+    fontSize: 16,
+    flex: 1,
+  },
+  friendAvatar: {
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+    backgroundColor: '#333',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 15,
+  },
+  friendAvatarText: {
+    color: 'white',
+    fontSize: 22,
+    fontWeight: 'bold',
+  },
+  noResultsContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  noResultsText: {
+    color: '#666',
+    fontSize: 16,
+    textAlign: 'center',
+  },
+  emptyFriendsContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  emptyListSubText: {
+    color: '#999',
+    fontSize: 14,
+    textAlign: 'center',
+  },
+  searchResultAvatar: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#E50914',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 10,
+  },
+  searchResultAvatarText: {
+    color: 'white',
+    fontSize: 20,
+    fontWeight: 'bold',
+  },
+  searchContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 10,
+    borderWidth: 1,
+    borderColor: '#333',
+    borderRadius: 5,
+  },
+  searchInput: {
+    flex: 1,
+    height: 40,
+    color: 'white',
+    fontSize: 16,
+    marginRight: 10,
+  },
+  searchResultItem: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    borderBottomWidth: 1,
+    borderBottomColor: '#333',
+    paddingVertical: 10,
+    paddingHorizontal: 5,
+  },
+  addButton: {
+    padding: 8,
+    borderRadius: 5,
+    backgroundColor: '#E50914',
+  },
+  addButtonText: {
+    color: '#FFF',
+    fontSize: 14,
+    fontWeight: 'bold',
+  },
+  tabButtonContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    marginVertical: 15,
+    borderBottomWidth: 2,
+    borderTopWidth: 2,
+    borderColor: '#333',
+    backgroundColor: '#222',
+    padding: 15,
+  },
+  tabBtn: {
+    padding: 12,
+    borderBottomWidth: 3,
+    borderBottomColor: 'transparent',
+    minWidth: 150,
+    alignItems: 'center',
+    flexDirection: 'row',
+    justifyContent: 'center',
+    backgroundColor: '#111',
+    borderRadius: 8,
+    elevation: 5,
+  },
+  activeTabBtn: {
+    backgroundColor: '#1C1C1C',
+    borderBottomColor: '#E50914',
+  },
+  tabBtnText: {
+    color: '#BBB',
+    fontSize: 18,
+    fontWeight: '500',
+    marginLeft: 8,
+  },
+  activeTabBtnText: {
+    color: '#E50914',
+    fontWeight: 'bold',
+  },
+  searchContainer: {
+    flexDirection: 'column',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 15,
+    borderWidth: 1,
+    borderColor: '#444',
+    borderRadius: 10,
+    backgroundColor: '#222',
+    overflow: 'hidden',
+    height: '90vh',
+  },
+  searchInput: {
+    flex: 1,
+    height: 50,
+    width: '95vw',
+    color: 'white',
+    fontSize: 16,
+    marginRight: 10,
+  },
+  searchButton: {
+    padding: 10,
+    borderRadius: 8,
+    backgroundColor: '#E50914',
+    height: 40,
+    justifyContent: 'center',
+    alignItems: 'center',
+    width: 80,
+  },
+  searchButtonText: {
+    color: '#FFF',
+    fontSize: 16,
+    fontWeight: 'bold',
+  },
+  addButton: {
+    padding: 10,
+    borderRadius: 5,
+    backgroundColor: '#E50914',
+    minWidth: 20,
+    alignItems: 'center',
+  },
+  addButtonText: {
+    color: '#FFF',
+    fontSize: 14,
+    fontWeight: 'bold',
+  },
+  noResultsContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  noResultsText: {
+    color: '#666',
+    fontSize: 16,
+    textAlign: 'center',
+  },
+  emptyFriendsContainer: {
+    flex: 1,
+    width: '20vw',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  emptyListSubText: {
+    color: '#999',
+    width: '20vw',
+    fontSize: 14,
+    textAlign: 'center',
+  },
+  searchResultAvatar: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#E50914',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 10,
+  },
+  searchResultAvatarText: {
+    color: 'white',
+    fontSize: 20,
+    fontWeight: 'bold',
+  },
+  sectionTitle: {
+    color: 'white',
+    fontSize: 22,
+    fontWeight: 'bold',
+    marginVertical: 15,
+    paddingHorizontal: 5,
+  },
+  friendItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderBottomWidth: 1,
+    borderBottomColor: '#333',
+    paddingVertical: 15,
+    paddingHorizontal: 10,
+    backgroundColor: '#222',
+    marginVertical: 5,
+    borderRadius: 8,
+  },
+  friendEmail: {
+    color: 'white',
+    fontSize: 16,
+    flex: 1,
+  },
+  emptyListText: {
+    color: '#999',
+    fontSize: 16,
+    textAlign: 'center',
+    marginTop: 10,
+  },
+  watchListItem: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    borderBottomWidth: 1,
+    borderBottomColor: '#333',
+    paddingVertical: 15,
+    paddingHorizontal: 10,
+    backgroundColor: '#222',
+    marginVertical: 5,
+    borderRadius: 8,
+  },
+  movieTitle: {
+    color: 'white',
+    fontSize: 16,
+    fontWeight: 'bold',
+    flex: 1,
+  },
+  removeButton: {
+    color: '#ff4d4d',
+    fontSize: 16,
+    fontWeight: 'bold',
+    padding: 8,
+  },
+  friendsTabContainer: {
+    flex: 1,
+    padding: 20,
+  },
+  movieCard: {
+    width: '10vw',
+    margin: 25,
+    backgroundColor: '#333',
+    borderRadius: 5,
+    overflow: 'hidden',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+    elevation: 5,
+  },
+  movieImageContainer: {
+    width: '100%',
+    height: 200,
+    resizeMode: 'cover',
+    backgroundColor: '#222',
+  },
+  movieYear: {
+    color: '#999',
+    fontSize: 12,
+    textAlign: 'center',
+    marginTop: 5,
+  },
+  moviesGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'center',
+    paddingHorizontal: 5,
+  },
+  movieRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    marginBottom: 10,
+  },
+  movieImage: {
+    width: '100%',
+    height: 200,
+    resizeMode: 'cover',
+  },
+  movieImageFallback: {
+    width: '100%',
+    height: 200,
+    resizeMode: 'cover',
+    backgroundColor: '#333',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  movieTitle: {
+    color: 'white',
+    fontSize: 14,
+    textAlign: 'center',
+    marginTop: 8,
+    paddingHorizontal: 5,
+    fontWeight: 'bold',
+  },
+  removeIconButton: {
+    position: 'absolute',
+    top: 5,
+    right: 5,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    borderRadius: 12,
+    padding: 2,
+  },
+  friendsSearchBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginVertical: 10,
+    paddingHorizontal: 10,
+    borderWidth: 1,
+    borderColor: '#444',
+    borderRadius: 8,
+    backgroundColor: '#222',
+    overflow: 'hidden',
+    height: 45,
+    width: '100%',
+  },
+  friendsSearchInput: {
+    flex: 1,
+    height: 40,
+    color: 'white',
+    fontSize: 16,
+    marginRight: 10,
+  },
+  searchButton: {
+    padding: 10,
+    borderRadius: 8,
+    backgroundColor: '#E50914',
+    height: 40,
+    justifyContent: 'center',
+    alignItems: 'center',
+    width: 80,
+  },
+  searchButtonText: {
+    color: '#FFF',
+    fontSize: 16,
+    fontWeight: 'bold',
+  },
+  emptyFriendRecsContainer: {
+    height: 150,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#1E1E1E',
+    borderRadius: 5,
+    marginHorizontal: 10,
+    padding: 20,
+  },
+  emptyFriendRecsText: {
+    color: '#999',
+    fontSize: 14,
+    textAlign: 'center',
+    marginTop: 10,
   },
 });
 
