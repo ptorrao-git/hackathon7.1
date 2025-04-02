@@ -2111,7 +2111,7 @@ const LoginScreen = ({ navigation }) => {
   return (
     <View style={styles.loginContainer}>
       <View style={styles.logoContainer}>
-        <Text style={styles.logoText}>NETFLIX</Text>
+        <Text style={styles.logoText}>JOYN</Text>
       </View>
       
       <View style={styles.formContainer}>
@@ -2153,7 +2153,7 @@ const LoginScreen = ({ navigation }) => {
         </TouchableOpacity>
         
         <View style={styles.signupContainer}>
-          <Text style={styles.signupText}>New to Netflix? </Text>
+          <Text style={styles.signupText}>New to JOYN? </Text>
           <TouchableOpacity onPress={() => navigation.navigate('Signup')}>
             <Text style={styles.signupLink}>Sign up now</Text>
           </TouchableOpacity>
@@ -2381,7 +2381,7 @@ const SignupScreen = ({ navigation }) => {
   return (
     <View style={styles.loginContainer}>
       <View style={styles.logoContainer}>
-        <Text style={styles.logoText}>NETFLIX</Text>
+        <Text style={styles.logoText}>JOYN</Text>
       </View>
       
       <View style={styles.formContainer}>

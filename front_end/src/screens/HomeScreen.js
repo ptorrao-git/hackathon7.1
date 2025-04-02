@@ -12,7 +12,7 @@ import {
 const HomeScreen = ({ navigation }) => {
   const categories = [
     { id: 1, title: 'Trending Now' },
-    { id: 2, title: 'Popular on Netflix' },
+    { id: 2, title: 'Popular on JOYN' },
     { id: 3, title: 'My List' },
   ];
 
