@@ -27,6 +27,10 @@ def get_movies_by_title_and_info():
     return results
 
 def main():
+    if len(sys.argv) != 3:
+        print("Usage: ./db_graber <action> <user_id>")
+        sys.exit(1)
+    
     results = get_movies_by_title_and_info()
     if results is None:
         print("No results found.")
