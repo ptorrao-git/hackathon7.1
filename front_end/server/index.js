@@ -3,6 +3,8 @@ const mysql = require('mysql2');
 const cors = require('cors');
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
+const { exec } = require('child_process');
+const path = require('path');
 
 console.log('1. Starting server setup...'); // Debug point 1
 
@@ -391,6 +393,679 @@ app.get('/api/db-info', (req, res) => {
       });
     });
   });
+});
+
+// New endpoint to trigger recommendations update for a user
+app.get('/api/update-recommendations/:userId', (req, res) => {
+  const userId = req.params.userId;
+  console.log(`Updating recommendations for user ${userId}`);
+  
+  // Use child_process to run the Python script
+  const scriptPath = path.resolve(__dirname, '../../script/test.py');
+  
+  // Log the path we're trying to use
+  console.log(`Attempting to run script at: ${scriptPath}`);
+  
+  exec(`python3 ${scriptPath} recommend ${userId}`, (error, stdout, stderr) => {
+    if (error) {
+      console.error(`Error running script: ${error}`);
+      
+      // Fallback to using the path directly in case the script is in a different location
+      console.log('Trying fallback script location...');
+      const fallbackPath = '/home/profeta/Documents/hackathon7.1/script/test.py';
+      
+      exec(`python3 ${fallbackPath} recommend ${userId}`, (fallbackError, fallbackStdout, fallbackStderr) => {
+        if (fallbackError) {
+          console.error(`Fallback also failed: ${fallbackError}`);
+          return res.status(500).json({ 
+            error: 'Failed to update recommendations', 
+            details: `Tried paths: ${scriptPath} and ${fallbackPath}`
+          });
+        }
+        
+        console.log(`Fallback script output: ${fallbackStdout}`);
+        if (fallbackStderr) console.error(`Fallback script errors: ${fallbackStderr}`);
+        
+        res.json({ success: true, message: 'Recommendations updated successfully via fallback' });
+      });
+      return;
+    }
+    
+    console.log(`Script output: ${stdout}`);
+    if (stderr) console.error(`Script errors: ${stderr}`);
+    
+    res.json({ success: true, message: 'Recommendations updated successfully' });
+  });
+});
+
+// Add to watchlist API endpoint
+app.post('/api/watchlist', async (req, res) => {
+  const { userId, movieId, movieTitle } = req.body;
+  console.log(`Attempt to add movie ${movieId} to watchlist for user ${userId}`);
+  
+  if (!userId || (!movieId && !movieTitle)) {
+    return res.status(400).json({ error: 'userId and either movieId or movieTitle are required' });
+  }
+
+  try {
+    // Check if movie exists in Movies table
+    let checkMovieQuery = 'SELECT id FROM Movies WHERE id = ?';
+    const [movieExists] = await pool.promise().query(checkMovieQuery, [movieId]);
+    
+    let finalMovieId = movieId;
+    
+    // If movie doesn't exist by ID but we have a title, try to find it by title
+    if (movieExists.length === 0 && movieTitle) {
+      const [movieByTitle] = await pool.promise().query('SELECT id FROM Movies WHERE title = ?', [movieTitle]);
+      if (movieByTitle.length > 0) {
+        finalMovieId = movieByTitle[0].id;
+        console.log(`Found movie by title: ${movieTitle}, ID: ${finalMovieId}`);
+      } else {
+        return res.status(404).json({ error: 'Movie not found in database' });
+      }
+    } else if (movieExists.length === 0) {
+      return res.status(404).json({ error: 'Movie not found in database' });
+    }
+    
+    // Insert into WatchList table
+    await insertIntoWatchlist(userId, finalMovieId);
+    
+    // Update FriendRecommended table for the user's friends
+    await updateFriendRecommendations(userId, finalMovieId);
+    
+    res.status(201).json({ message: 'Movie added to watchlist and friend recommendations updated' });
+  } catch (error) {
+    console.error('Error adding to watchlist:', error);
+    res.status(500).json({ error: 'Failed to add movie to watchlist' });
+  }
+});
+
+// Helper function to insert into watchlist
+async function insertIntoWatchlist(userId, movieId) {
+  const insertQuery = 'INSERT INTO WatchList (user_id, movie_id) VALUES (?, ?)';
+  try {
+    await pool.promise().query(insertQuery, [userId, movieId]);
+    console.log(`Added movie ${movieId} to watchlist for user ${userId}`);
+    return true;
+  } catch (error) {
+    console.error(`Error inserting into watchlist: ${error.message}`);
+    // Re-throw the error to be caught by the caller
+    throw error;
+  }
+}
+
+// Function to update FriendRecommended table
+async function updateFriendRecommendations(userId, movieId) {
+  try {
+    // First, get all friends of the user
+    const [friends] = await pool.promise().query(
+      'SELECT friend_id FROM Friends WHERE user_id = ? AND status = "accepted"',
+      [userId]
+    );
+    
+    if (friends.length === 0) {
+      console.log(`User ${userId} has no friends to recommend movie ${movieId} to`);
+      return;
+    }
+    
+    console.log(`Found ${friends.length} friends for user ${userId}`);
+    
+    // For each friend, add this movie to their FriendRecommended table
+    for (const friend of friends) {
+      const friendId = friend.friend_id;
+      
+      // Check if this movie is already in the friend's FriendRecommended table
+      const [existingRec] = await pool.promise().query(
+        'SELECT id FROM FriendRecommended WHERE user_id = ? AND movie_id = ?',
+        [friendId, movieId]
+      );
+      
+      if (existingRec.length === 0) {
+        // Insert into FriendRecommended table
+        await pool.promise().query(
+          'INSERT INTO FriendRecommended (user_id, movie_id, date_added) VALUES (?, ?, NOW())',
+          [friendId, movieId]
+        );
+        console.log(`Added movie ${movieId} to FriendRecommended for user ${friendId}`);
+      } else {
+        console.log(`Movie ${movieId} already in FriendRecommended for user ${friendId}`);
+      }
+    }
+  } catch (error) {
+    console.error(`Error updating friend recommendations: ${error.message}`);
+    // Log the error but don't fail the watchlist addition
+  }
+}
+
+// Remove movie from watchlist
+app.delete('/api/watchlist', (req, res) => {
+  const { userId, movieId } = req.body;
+  
+  if (!userId || !movieId) {
+    return res.status(400).json({ error: 'User ID and Movie ID are required' });
+  }
+  
+  const query = `
+    DELETE FROM WatchList 
+    WHERE user_id = ? AND movie_id = ?
+  `;
+  
+  pool.query(query, [userId, movieId], (err, result) => {
+    if (err) {
+      console.error('Error removing from watchlist:', err);
+      return res.status(500).json({ error: 'Failed to remove from watchlist' });
+    }
+    
+    res.json({ success: true, message: 'Removed from watchlist' });
+  });
+});
+
+// Check if movie is in watchlist
+app.get('/api/watchlist/check', (req, res) => {
+  const { userId, movieId } = req.query;
+  
+  if (!userId || !movieId) {
+    return res.status(400).json({ error: 'User ID and Movie ID are required' });
+  }
+  
+  const query = `
+    SELECT * FROM WatchList
+    WHERE user_id = ? AND movie_id = ?
+  `;
+  
+  pool.query(query, [userId, movieId], (err, results) => {
+    if (err) {
+      console.error('Error checking watchlist:', err);
+      return res.status(500).json({ error: 'Failed to check watchlist' });
+    }
+    
+    res.json({ inWatchlist: results.length > 0 });
+  });
+});
+
+// Get user's watchlist
+app.get('/api/watchlist/:userId', (req, res) => {
+  const userId = req.params.userId;
+  
+  const query = `
+    SELECT 
+      m.id,
+      m.title,
+      m.overview,
+      m.poster_path,
+      m.release_date,
+      m.vote_average
+    FROM 
+      Movies m
+    JOIN 
+      WatchList w ON m.id = w.movie_id
+    WHERE 
+      w.user_id = ?
+  `;
+  
+  pool.query(query, [userId], (err, results) => {
+    if (err) {
+      console.error('Error fetching watchlist:', err);
+      return res.status(500).json({ error: 'Failed to fetch watchlist' });
+    }
+    
+    const transformedResults = results.map(movie => {
+      let imageUrl;
+      
+      if (movie.poster_path && movie.poster_path !== '') {
+        imageUrl = `https://image.tmdb.org/t/p/w500${movie.poster_path}`;
+      } else {
+        imageUrl = `https://placehold.co/400x600/1e1e1e/FFF?text=${encodeURIComponent(movie.title)}`;
+      }
+      
+      // Fix for vote_average processing
+      let rating = 'N/A';
+      if (movie.vote_average !== null && movie.vote_average !== undefined) {
+        const ratingNum = parseFloat(movie.vote_average);
+        if (!isNaN(ratingNum)) {
+          rating = ratingNum.toFixed(1);
+        }
+      }
+      
+      return {
+        id: movie.id,
+        title: movie.title,
+        description: movie.overview,
+        image: imageUrl,
+        fallbackImage: `https://placehold.co/400x600/1e1e1e/FFF?text=${encodeURIComponent(movie.title)}`,
+        releaseDate: movie.release_date,
+        rating: rating
+      };
+    });
+    
+    res.json({ watchlist: transformedResults });
+  });
+});
+
+// Add to watch history
+app.post('/api/watch-history', async (req, res) => {
+  const { userId, movieId } = req.body;
+  
+  if (!userId || !movieId) {
+    return res.status(400).json({ error: 'User ID and Movie ID are required' });
+  }
+  
+  const query = `
+    INSERT INTO WatchHistory (user_id, movie_id, watched_at)
+    VALUES (?, ?, NOW())
+  `;
+  
+  try {
+    await pool.promise().query(query, [userId, movieId]);
+    console.log(`Added movie ${movieId} to watch history for user ${userId}`);
+    res.json({ success: true, message: 'Added to watch history' });
+  } catch (err) {
+    console.error('Error adding to watch history:', err);
+    res.status(500).json({ error: 'Failed to add to watch history' });
+  }
+});
+
+// Get user's watch history
+app.get('/api/watch-history/:userId', (req, res) => {
+  const userId = req.params.userId;
+  
+  const query = `
+    SELECT 
+      m.id,
+      m.title,
+      m.overview,
+      m.poster_path,
+      m.release_date,
+      m.vote_average,
+      wh.watched_at
+    FROM 
+      Movies m
+    JOIN 
+      WatchHistory wh ON m.id = wh.movie_id
+    WHERE 
+      wh.user_id = ?
+    ORDER BY 
+      wh.watched_at DESC
+  `;
+  
+  pool.query(query, [userId], (err, results) => {
+    if (err) {
+      console.error('Error fetching watch history:', err);
+      return res.status(500).json({ error: 'Failed to fetch watch history' });
+    }
+    
+    const transformedResults = results.map(movie => {
+      let imageUrl;
+      
+      if (movie.poster_path && movie.poster_path !== '') {
+        imageUrl = `https://image.tmdb.org/t/p/w500${movie.poster_path}`;
+      } else {
+        imageUrl = `https://placehold.co/400x600/1e1e1e/FFF?text=${encodeURIComponent(movie.title)}`;
+      }
+      
+      // Fix for vote_average processing
+      let rating = 'N/A';
+      if (movie.vote_average !== null && movie.vote_average !== undefined) {
+        const ratingNum = parseFloat(movie.vote_average);
+        if (!isNaN(ratingNum)) {
+          rating = ratingNum.toFixed(1);
+        }
+      }
+      
+      return {
+        id: movie.id,
+        title: movie.title,
+        description: movie.overview,
+        image: imageUrl,
+        fallbackImage: `https://placehold.co/400x600/1e1e1e/FFF?text=${encodeURIComponent(movie.title)}`,
+        releaseDate: movie.release_date,
+        rating: rating,
+        watchedAt: movie.watched_at
+      };
+    });
+    
+    res.json({ history: transformedResults });
+  });
+});
+
+// Add to UserNotRecommended table
+app.post('/api/not-recommended', (req, res) => {
+  const { userId, movieId } = req.body;
+  
+  if (!userId || !movieId) {
+    return res.status(400).json({ error: 'User ID and Movie ID are required' });
+  }
+  
+  console.log(`Attempting to add movie ${movieId} to not recommended for user ${userId}`);
+  
+  // First check if the movie exists
+  const checkMovieQuery = `SELECT id FROM Movies WHERE id = ?`;
+  
+  pool.query(checkMovieQuery, [movieId], (checkErr, checkResults) => {
+    if (checkErr) {
+      console.error('Error checking movie existence:', checkErr);
+      return res.status(500).json({ error: 'Database error when checking movie' });
+    }
+    
+    if (checkResults.length === 0) {
+      console.error(`Movie ID ${movieId} not found in database`);
+      
+      // For client-side generated IDs, try to find by title if the ID isn't found
+      // This is a workaround for the mismatch between client and server IDs
+      if (req.body.movieTitle) {
+        const findByTitleQuery = `SELECT id FROM Movies WHERE title = ?`;
+        pool.query(findByTitleQuery, [req.body.movieTitle], (titleErr, titleResults) => {
+          if (titleErr || titleResults.length === 0) {
+            return res.status(404).json({ error: 'Movie not found in database' });
+          }
+          
+          const dbMovieId = titleResults[0].id;
+          console.log(`Found movie by title. Using database ID: ${dbMovieId}`);
+          
+          // Now use the correct database ID for insertion
+          insertIntoNotRecommended(userId, dbMovieId, res);
+        });
+        return;
+      }
+      
+      return res.status(404).json({ error: 'Movie not found in database' });
+    }
+    
+    // If movie exists, proceed with insertion
+    insertIntoNotRecommended(userId, movieId, res);
+  });
+  
+  function insertIntoNotRecommended(userId, movieId, res) {
+    const query = `
+      INSERT INTO UserNotRecommended (user_id, movie_id, date_added)
+      VALUES (?, ?, NOW())
+      ON DUPLICATE KEY UPDATE date_added = NOW()
+    `;
+    
+    pool.query(query, [userId, movieId], (err, result) => {
+      if (err) {
+        console.error('Error adding to not recommended list:', err);
+        return res.status(500).json({ error: 'Failed to add to not recommended list' });
+      }
+      
+      console.log(`Successfully added movie ${movieId} to not recommended for user ${userId}`);
+      res.json({ success: true, message: 'Added to not recommended list' });
+    });
+  }
+});
+
+// Get user's not recommended list
+app.get('/api/not-recommended/:userId', (req, res) => {
+  const userId = req.params.userId;
+  
+  const query = `
+    SELECT 
+      m.id,
+      m.title,
+      m.overview,
+      m.poster_path,
+      m.release_date,
+      m.vote_average
+    FROM 
+      Movies m
+    JOIN 
+      UserNotRecommended ur ON m.id = ur.movie_id
+    WHERE 
+      ur.user_id = ?
+  `;
+  
+  pool.query(query, [userId], (err, results) => {
+    if (err) {
+      console.error('Error fetching not recommended list:', err);
+      return res.status(500).json({ error: 'Failed to fetch not recommended list' });
+    }
+    
+    const transformedResults = results.map(movie => {
+      let imageUrl;
+      
+      if (movie.poster_path && movie.poster_path !== '') {
+        imageUrl = `https://image.tmdb.org/t/p/w500${movie.poster_path}`;
+      } else {
+        imageUrl = `https://placehold.co/400x600/1e1e1e/FFF?text=${encodeURIComponent(movie.title)}`;
+      }
+      
+      // Fix for vote_average processing
+      let rating = 'N/A';
+      if (movie.vote_average !== null && movie.vote_average !== undefined) {
+        const ratingNum = parseFloat(movie.vote_average);
+        if (!isNaN(ratingNum)) {
+          rating = ratingNum.toFixed(1);
+        }
+      }
+      
+      return {
+        id: movie.id,
+        title: movie.title,
+        description: movie.overview,
+        image: imageUrl,
+        fallbackImage: `https://placehold.co/400x600/1e1e1e/FFF?text=${encodeURIComponent(movie.title)}`,
+        releaseDate: movie.release_date,
+        rating: rating
+      };
+    });
+    
+    res.json({ notRecommended: transformedResults });
+  });
+});
+
+// Update the recommendations endpoint to exclude movies from watchlist and watch history
+app.get('/api/recommendations/:userId', (req, res) => {
+  const userId = req.params.userId;
+  console.log(`Fetching recommendations for user ${userId}`);
+  
+  const query = `
+    SELECT 
+      m.id,
+      m.title,
+      m.overview,
+      m.poster_path,
+      m.release_date,
+      m.vote_average
+    FROM 
+      Movies m
+    JOIN 
+      UserRecommended ur ON m.id = ur.movie_id
+    WHERE 
+      ur.user_id = ?
+    AND 
+      m.id NOT IN (
+        SELECT movie_id FROM WatchList WHERE user_id = ?
+      )
+    AND 
+      m.id NOT IN (
+        SELECT movie_id FROM WatchHistory WHERE user_id = ?
+      )
+    AND 
+      m.id NOT IN (
+        SELECT movie_id FROM UserNotRecommended WHERE user_id = ?
+      )
+    ORDER BY 
+      ur.date_added DESC
+  `;
+  
+  pool.query(query, [userId, userId, userId, userId], (err, results) => {
+    if (err) {
+      console.error('Query error:', err);
+      res.status(500).json({ error: err.message });
+      return;
+    }
+    
+    try {
+      const transformedResults = results.map(movie => {
+        let imageUrl;
+        
+        if (movie.poster_path && movie.poster_path !== '') {
+          imageUrl = `https://image.tmdb.org/t/p/w500${movie.poster_path}`;
+        } else {
+          imageUrl = `https://placehold.co/400x600/1e1e1e/FFF?text=${encodeURIComponent(movie.title)}`;
+        }
+
+        // Fix for vote_average processing
+        let rating = 'N/A';
+        if (movie.vote_average !== null && movie.vote_average !== undefined) {
+          const ratingNum = parseFloat(movie.vote_average);
+          if (!isNaN(ratingNum)) {
+            rating = ratingNum.toFixed(1);
+          }
+        }
+        
+        return {
+          id: movie.id,
+          title: movie.title,
+          description: movie.overview,
+          image: imageUrl,
+          fallbackImage: `https://placehold.co/400x600/1e1e1e/FFF?text=${encodeURIComponent(movie.title)}`,
+          releaseDate: movie.release_date,
+          rating: rating
+        };
+      });
+      
+      const response = {
+        featured: transformedResults.length > 0 ? transformedResults[0] : null,
+        categories: [{
+          id: 'recommended',
+          title: 'Recommended For You',
+          data: transformedResults
+        }]
+      };
+      
+      res.json(response);
+    } catch (error) {
+      console.error('Error processing results:', error);
+      res.status(500).json({ error: 'Error processing results' });
+    }
+  });
+});
+
+// Search for user by email
+app.get('/api/user/search', (req, res) => {
+  const { email } = req.query;
+  
+  if (!email) {
+    return res.status(400).json({ error: 'Email is required' });
+  }
+  
+  const query = `SELECT user_id, email FROM Users WHERE email LIKE ?`;
+  
+  pool.query(query, [`%${email}%`], (err, results) => {
+    if (err) {
+      console.error('Error searching for user:', err);
+      return res.status(500).json({ error: 'Database error' });
+    }
+    
+    res.json({ users: results });
+  });
+});
+
+// Add friend
+app.post('/api/friends', (req, res) => {
+  const { userId, friendId } = req.body;
+  
+  if (!userId || !friendId) {
+    return res.status(400).json({ error: 'User ID and Friend ID are required' });
+  }
+  
+  // Check if users are already friends
+  const checkQuery = `SELECT * FROM Friends WHERE user_id = ? AND friend_id = ?`;
+  
+  pool.query(checkQuery, [userId, friendId], (checkErr, checkResults) => {
+    if (checkErr) {
+      console.error('Error checking friendship:', checkErr);
+      return res.status(500).json({ error: 'Database error' });
+    }
+    
+    if (checkResults.length > 0) {
+      return res.status(400).json({ error: 'Already friends with this user' });
+    }
+    
+    // Add both friendship directions
+    const addQuery1 = `INSERT INTO Friends (user_id, friend_id) VALUES (?, ?)`;
+    const addQuery2 = `INSERT INTO Friends (user_id, friend_id) VALUES (?, ?)`;
+    
+    // First direction: user -> friend
+    pool.query(addQuery1, [userId, friendId], (err1, result1) => {
+      if (err1) {
+        console.error('Error adding friend (direction 1):', err1);
+        return res.status(500).json({ error: 'Failed to add friend' });
+      }
+      
+      // Second direction: friend -> user
+      pool.query(addQuery2, [friendId, userId], (err2, result2) => {
+        if (err2) {
+          console.error('Error adding friend (direction 2):', err2);
+          // Delete the first insertion as this failed
+          pool.query('DELETE FROM Friends WHERE user_id = ? AND friend_id = ?', [userId, friendId]);
+          return res.status(500).json({ error: 'Failed to add friend' });
+        }
+        
+        res.json({ success: true, message: 'Friend added successfully' });
+      });
+    });
+  });
+});
+
+// Get friends
+app.get('/api/friends/:userId', (req, res) => {
+  const userId = req.params.userId;
+  
+  if (!userId) {
+    return res.status(400).json({ error: 'User ID is required' });
+  }
+  
+  const query = `
+    SELECT u.user_id, u.email
+    FROM Friends f
+    JOIN Users u ON f.friend_id = u.user_id
+    WHERE f.user_id = ?
+  `;
+  
+  pool.query(query, [userId], (err, results) => {
+    if (err) {
+      console.error('Error getting friends:', err);
+      return res.status(500).json({ error: 'Database error' });
+    }
+    
+    res.json({ friends: results });
+  });
+});
+
+// Get friend recommendations for a user
+app.get('/api/recommendations/friends/:userId', async (req, res) => {
+  const userId = req.params.userId;
+  
+  if (!userId) {
+    return res.status(400).json({ error: 'User ID is required' });
+  }
+  
+  try {
+    // Get movies from FriendRecommended table for this user
+    const query = `
+      SELECT m.*, fr.date_added 
+      FROM Movies m
+      JOIN FriendRecommended fr ON m.id = fr.movie_id
+      WHERE fr.user_id = ?
+      ORDER BY fr.date_added DESC
+      LIMIT 20
+    `;
+    
+    // Use the promise pool for async/await compatibility
+    const [recommendations] = await pool.promise().query(query, [userId]);
+    
+    console.log(`Retrieved ${recommendations.length} friend recommendations for user ${userId}`);
+    
+    res.json({ 
+      success: true, 
+      recommendations 
+    });
+  } catch (error) {
+    console.error('Error fetching friend recommendations:', error);
+    res.status(500).json({ error: 'Failed to fetch friend recommendations' });
+  }
 });
 
 const PORT = 3001;
