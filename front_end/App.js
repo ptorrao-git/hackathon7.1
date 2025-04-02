@@ -17,7 +17,7 @@ import IconFeather from 'react-native-vector-icons/Feather';
 const dbConfig = {
   host: 'hackathon.c9g6wywk8mvf.eu-north-1.rds.amazonaws.com',
   port: '3306',
-  database: 'hackathon',
+  database: 'finalBDtests',
   user: 'filferna',
   password: 'thg8f3fx1',
   ssl: {
@@ -35,78 +35,9 @@ const dbConfig = {
 
 // Example query structure:
 const getMoviesQuery = `
-  SELECT name, overview, realease_date, poster_path
-  FROM movies_db
+  SELECT title, overview, realease_date, poster_path
+  FROM Movies
 `;
-
-// Add this sample data (you would normally fetch this from an API)
-const SAMPLE_SHOWS = [
-  { id: '1', title: 'Stranger Things', image: 'https://via.placeholder.com/150?text=Stranger+Things' },
-  { id: '2', title: 'The Crown', image: 'https://via.placeholder.com/150?text=The+Crown' },
-  { id: '3', title: 'Wednesday', image: 'https://via.placeholder.com/150?text=Wednesday' },
-  { id: '4', title: 'Bridgerton', image: 'https://via.placeholder.com/150?text=Bridgerton' },
-  { id: '5', title: 'Squid Game', image: 'https://via.placeholder.com/150?text=Squid+Game' },
-];
-
-// Movie data with real poster images
-const FEATURED = {
-  id: 'featured',
-  title: 'Stranger Things',
-  image: 'https://image.tmdb.org/t/p/original/56v2KjBlU4XaOv9rVYEQypROD7P.jpg',
-  description: 'When a young boy vanishes, a small town uncovers a mystery involving secret experiments, terrifying supernatural forces and one strange little girl.'
-};
-
-const CATEGORIES = [
-  {
-    id: 'trending',
-    title: 'Trending Now',
-    data: [
-      { id: '1', title: 'Wednesday', image: 'https://image.tmdb.org/t/p/w500/9PFonBhy4cQy7Jz20NpMygczOkv.jpg' },
-      { id: '2', title: 'The Crown', image: 'https://image.tmdb.org/t/p/w500/7JFmPwvl1vNBvXeGKzytZ0pzJr1.jpg' },
-      { id: '3', title: 'Bridgerton', image: 'https://image.tmdb.org/t/p/w500/6wkfovpn7Eq8dYNKaG5PY3q2oq6.jpg' },
-      { id: '4', title: 'Squid Game', image: 'https://image.tmdb.org/t/p/w500/dDlEmu3EZ0Pgg93K2SVNLCjCSvE.jpg' },
-      { id: '5', title: 'The Witcher', image: 'https://image.tmdb.org/t/p/w500/7vjaCdMw15FEbXyLQTVa04URsPm.jpg' },
-    ]
-  },
-  {
-    id: 'recommended',
-    title: 'Recommended for You',
-    data: [
-      { id: '6', title: 'Dark', image: 'https://image.tmdb.org/t/p/w500/apbrbWs8M9lyOpJYU5WXrpFbk1Z.jpg' },
-      { id: '7', title: 'Money Heist', image: 'https://image.tmdb.org/t/p/w500/reEMJA1uzscCbkpeRJeTT2bjqUp.jpg' },
-      { id: '8', title: 'The Queen\'s Gambit', image: 'https://image.tmdb.org/t/p/w500/zU0htwkhNvBQdVSIKB9s6hgVeFK.jpg' },
-      { id: '9', title: 'Ozark', image: 'https://image.tmdb.org/t/p/w500/m73bD8VjibSKuTWg597GQVyVhSb.jpg' },
-    ]
-  },
-  {
-    id: 'original',
-    title: 'Netflix Originals',
-    isLarge: true,
-    data: [
-      { id: '10', title: 'The Sandman', image: 'https://image.tmdb.org/t/p/w500/q54qEgagGOYCq5D1903eBVMNkbo.jpg' },
-      { id: '11', title: 'Shadow and Bone', image: 'https://image.tmdb.org/t/p/w500/mrVoyDFiDSqfH4mZaHk8xKycGko.jpg' },
-      { id: '12', title: '1899', image: 'https://image.tmdb.org/t/p/w500/8KGvYHQNOamON6ufQGjyhkiVn1V.jpg' },
-    ]
-  },
-  {
-    id: 'comedies',
-    title: 'Comedies',
-    data: [
-      { id: '13', title: 'Friends', image: 'https://image.tmdb.org/t/p/w500/f496cm9enuEsZkSPzCwnTESEK5s.jpg' },
-      { id: '14', title: 'Brooklyn Nine-Nine', image: 'https://image.tmdb.org/t/p/w500/yMEzsYvGqRCCKP5QaYt8ZX4l2Jj.jpg' },
-      { id: '15', title: 'The Office', image: 'https://image.tmdb.org/t/p/w500/qWnJzyZhyy74gjpSjIXWmuk0ifX.jpg' },
-    ]
-  },
-  {
-    id: 'documentaries',
-    title: 'Documentaries',
-    data: [
-      { id: '16', title: 'Our Planet', image: 'https://image.tmdb.org/t/p/w500/wXPYMvLIIrGLilgpgxAimKKLsGH.jpg' },
-      { id: '17', title: 'Making a Murderer', image: 'https://image.tmdb.org/t/p/w500/ndeOKIzB0TZCnWheEMJJQa8yXOF.jpg' },
-      { id: '18', title: 'Tiger King', image: 'https://image.tmdb.org/t/p/w500/pmjYMCnSwndlEpiFZhhOWSWmUvl.jpg' },
-    ]
-  }
-];
 
 // Add error handling for images
 const ImageWithFallback = ({ source, style, ...props }) => {

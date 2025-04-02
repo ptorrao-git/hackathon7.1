@@ -17,7 +17,7 @@ const dbConfig = {
   host: 'hackathon.c9g6wywk8mvf.eu-north-1.rds.amazonaws.com', // ⬅️ CHANGE THIS
   user: 'filferna',                              // ⬅️ CHANGE THIS
   password: 'thg8f3fx1',                          // ⬅️ CHANGE THIS
-  database: 'hackathon',                     // ⬅️ CHANGE THIS
+  database: 'finalBDtests',                     // ⬅️ CHANGE THIS
   port: 3306,
   ssl: {
     minVersion: 'TLSv1.2',
@@ -46,18 +46,6 @@ pool.getConnection((err, connection) => {
   connection.release();
 });
 
-// For testing without database connection, use mock data
-const MOCK_MOVIES = [
-  {
-    id: 1,
-    title: 'Stranger Things',
-    description: 'When a young boy vanishes, a small town uncovers a mystery.',
-    image: 'https://image.tmdb.org/t/p/original/56v2KjBlU4XaOv9rVYEQypROD7P.jpg',
-    category: 'Trending Now'
-  },
-  // ... add more mock movies if needed
-];
-
 // Test endpoint
 app.get('/test', (req, res) => {
   console.log('Test endpoint hit');
@@ -68,12 +56,13 @@ app.get('/test', (req, res) => {
 app.get('/api/movies', (req, res) => {
   const query = `
     SELECT 
-      name,
+      id,
+      title,
       overview,
       poster_path,
       release_date    
-    FROM movies_db
-    WHERE release_date LIKE '2012%'
+    FROM Movies
+    LIMIT 20
   `;
 
   pool.query(query, (err, results) => {
@@ -144,15 +133,15 @@ app.get('/api/search', (req, res) => {
   // Removed 'id' column and using actual table columns
   const query = `
     SELECT 
-      movie_id,
-      name AS title, 
-      overview AS description, 
-      poster_path AS image,
+      id,
+      title, 
+      overview, 
+      poster_path,
       release_date
     FROM 
-      movies_db 
+      Movies 
     WHERE 
-      name LIKE ? OR overview LIKE ?
+      title LIKE ? OR overview LIKE ?
     LIMIT 20
   `;
   
