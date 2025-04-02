@@ -35,20 +35,127 @@ const dbConfig = {
 
 // Example query structure:
 const getMoviesQuery = `
-  SELECT title, overview, realease_date, poster_path
+  SELECT name, overview, realease_date, poster_path
   FROM Movies
 `;
 
-// Add error handling for images
-const ImageWithFallback = ({ source, style, ...props }) => {
-  const [error, setError] = React.useState(false);
+// Add this sample data (you would normally fetch this from an API)
+const SAMPLE_SHOWS = [
+  { id: '1', title: 'Stranger Things', image: 'https://via.placeholder.com/150?text=Stranger+Things' },
+  { id: '2', title: 'The Crown', image: 'https://via.placeholder.com/150?text=The+Crown' },
+  { id: '3', title: 'Wednesday', image: 'https://via.placeholder.com/150?text=Wednesday' },
+  { id: '4', title: 'Bridgerton', image: 'https://via.placeholder.com/150?text=Bridgerton' },
+  { id: '5', title: 'Squid Game', image: 'https://via.placeholder.com/150?text=Squid+Game' },
+];
 
+// Movie data with real poster images
+const FEATURED = {
+  id: 'featured',
+  title: 'Stranger Things',
+  image: 'https://image.tmdb.org/t/p/original/56v2KjBlU4XaOv9rVYEQypROD7P.jpg',
+  description: 'When a young boy vanishes, a small town uncovers a mystery involving secret experiments, terrifying supernatural forces and one strange little girl.'
+};
+
+const CATEGORIES = [
+  {
+    id: 'trending',
+    title: 'Trending Now',
+    data: [
+      { id: '1', title: 'Wednesday', image: 'https://image.tmdb.org/t/p/w500/9PFonBhy4cQy7Jz20NpMygczOkv.jpg' },
+      { id: '2', title: 'The Crown', image: 'https://image.tmdb.org/t/p/w500/7JFmPwvl1vNBvXeGKzytZ0pzJr1.jpg' },
+      { id: '3', title: 'Bridgerton', image: 'https://image.tmdb.org/t/p/w500/6wkfovpn7Eq8dYNKaG5PY3q2oq6.jpg' },
+      { id: '4', title: 'Squid Game', image: 'https://image.tmdb.org/t/p/w500/dDlEmu3EZ0Pgg93K2SVNLCjCSvE.jpg' },
+      { id: '5', title: 'The Witcher', image: 'https://image.tmdb.org/t/p/w500/7vjaCdMw15FEbXyLQTVa04URsPm.jpg' },
+    ]
+  },
+  {
+    id: 'recommended',
+    title: 'Recommended for You',
+    data: [
+      { id: '6', title: 'Dark', image: 'https://image.tmdb.org/t/p/w500/apbrbWs8M9lyOpJYU5WXrpFbk1Z.jpg' },
+      { id: '7', title: 'Money Heist', image: 'https://image.tmdb.org/t/p/w500/reEMJA1uzscCbkpeRJeTT2bjqUp.jpg' },
+      { id: '8', title: 'The Queen\'s Gambit', image: 'https://image.tmdb.org/t/p/w500/zU0htwkhNvBQdVSIKB9s6hgVeFK.jpg' },
+      { id: '9', title: 'Ozark', image: 'https://image.tmdb.org/t/p/w500/m73bD8VjibSKuTWg597GQVyVhSb.jpg' },
+    ]
+  },
+  {
+    id: 'original',
+    title: 'Netflix Originals',
+    isLarge: true,
+    data: [
+      { id: '10', title: 'The Sandman', image: 'https://image.tmdb.org/t/p/w500/q54qEgagGOYCq5D1903eBVMNkbo.jpg' },
+      { id: '11', title: 'Shadow and Bone', image: 'https://image.tmdb.org/t/p/w500/mrVoyDFiDSqfH4mZaHk8xKycGko.jpg' },
+      { id: '12', title: '1899', image: 'https://image.tmdb.org/t/p/w500/8KGvYHQNOamON6ufQGjyhkiVn1V.jpg' },
+    ]
+  },
+  {
+    id: 'comedies',
+    title: 'Comedies',
+    data: [
+      { id: '13', title: 'Friends', image: 'https://image.tmdb.org/t/p/w500/f496cm9enuEsZkSPzCwnTESEK5s.jpg' },
+      { id: '14', title: 'Brooklyn Nine-Nine', image: 'https://image.tmdb.org/t/p/w500/yMEzsYvGqRCCKP5QaYt8ZX4l2Jj.jpg' },
+      { id: '15', title: 'The Office', image: 'https://image.tmdb.org/t/p/w500/qWnJzyZhyy74gjpSjIXWmuk0ifX.jpg' },
+    ]
+  },
+  {
+    id: 'documentaries',
+    title: 'Documentaries',
+    data: [
+      { id: '16', title: 'Our Planet', image: 'https://image.tmdb.org/t/p/w500/wXPYMvLIIrGLilgpgxAimKKLsGH.jpg' },
+      { id: '17', title: 'Making a Murderer', image: 'https://image.tmdb.org/t/p/w500/ndeOKIzB0TZCnWheEMJJQa8yXOF.jpg' },
+      { id: '18', title: 'Tiger King', image: 'https://image.tmdb.org/t/p/w500/pmjYMCnSwndlEpiFZhhOWSWmUvl.jpg' },
+    ]
+  }
+];
+
+// Add error handling for images
+const ImageWithFallback = ({ path, style, fallbackStyle }) => {
+  const [imageError, setImageError] = useState(false);
+  const [currentSize, setCurrentSize] = useState('w500');
+  
+  // Reset error state when path changes
+  useEffect(() => {
+    setImageError(false);
+    setCurrentSize('w500');
+  }, [path]);
+
+  // If no path at all, show placeholder
+  if (!path) {
+    return (
+      <View style={[style, { backgroundColor: '#333', justifyContent: 'center', alignItems: 'center' }]}>
+        <Text style={{ color: '#999' }}>No Image</Text>
+      </View>
+    );
+  }
+  
+  // If we've tried all sizes and still have errors, show placeholder
+  if (imageError && currentSize === 'w92') {
+    return (
+      <View style={[fallbackStyle || style, { backgroundColor: '#333', justifyContent: 'center', alignItems: 'center' }]}>
+        <Text style={{ color: '#999' }}>No Image</Text>
+      </View>
+    );
+  }
+  
+  // Get next size down if current size fails
+  const getNextSize = (size) => {
+    const sizes = ['w500', 'w342', 'w185', 'w92'];
+    const currentIndex = sizes.indexOf(size);
+    return currentIndex < sizes.length - 1 ? sizes[currentIndex + 1] : 'w92';
+  };
+  
   return (
     <Image
-      source={error ? { uri: 'https://via.placeholder.com/300x450?text=No+Image' } : source}
-      onError={() => setError(true)}
+      source={{ uri: `https://image.tmdb.org/t/p/${currentSize}${path}` }}
       style={style}
-      {...props}
+      onError={() => {
+        console.log(`Image error for size ${currentSize}, trying smaller size`);
+        if (currentSize !== 'w92') {
+          setCurrentSize(getNextSize(currentSize));
+        } else {
+          setImageError(true);
+        }
+      }}
     />
   );
 };
@@ -370,12 +477,14 @@ const SearchScreen = () => {
   
   const renderShow = ({ item }) => (
     <TouchableOpacity style={styles.showItem}>
-      <ImageWithFallback 
-        source={{ uri: item.image }} 
-        style={styles.showImage}
-        resizeMode="cover"
-      />
-      <Text style={styles.showTitle}>{item.title}</Text>
+      <View style={styles.showImageContainer}>
+        <ImageWithFallback 
+          path={item.image} 
+          style={styles.showImage}
+          fallbackStyle={styles.showImage}
+        />
+      </View>
+      <Text style={styles.showTitle} numberOfLines={1}>{item.title}</Text>
       {item.year && <Text style={styles.showYear}>{item.year}</Text>}
     </TouchableOpacity>
   );
@@ -433,8 +542,9 @@ const SearchScreen = () => {
           data={searchResults}
           renderItem={renderShow}
           keyExtractor={(item, index) => `${item.id || index}`}
-          numColumns={2}
+          numColumns={3}
           contentContainerStyle={styles.resultsList}
+          columnWrapperStyle={styles.row}
         />
       ) : hasSearched ? (
         <View style={styles.noResults}>
@@ -473,17 +583,79 @@ export const WatchListProvider = ({ children }) => {
 };
 
 // Update ProfileScreen
-const ProfileScreen = () => {
-  const { watchList } = React.useContext(WatchListContext);
-
-  const userInfo = {
-    name: 'John Doe',
-    email: 'john.doe@example.com',
+const ProfileScreen = ({ navigation }) => {
+  const { watchList } = useContext(WatchListContext);
+  const { user, logout } = useContext(AuthContext);
+  const [userInfo, setUserInfo] = useState({
+    name: 'Loading...',
+    email: 'Loading...',
+    gender: '',
+    birthday: '',
     avatar: 'https://i.pravatar.cc/150?img=8',
     plan: 'Premium',
     joinDate: 'Member since January 2024'
+  });
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState(null);
+  
+  useEffect(() => {
+    // Fetch user profile data
+    const fetchUserProfile = async () => {
+      if (!user || !user.token) return;
+      
+      try {
+        const response = await fetch('http://localhost:3001/api/user/profile', {
+          headers: {
+            'Authorization': `Bearer ${user.token}`
+          }
+        });
+        
+        if (!response.ok) {
+          throw new Error('Failed to fetch profile');
+        }
+        
+        const data = await response.json();
+        
+        setUserInfo({
+          ...userInfo,
+          email: data.user.email,
+          gender: data.user.gender || 'Not specified',
+          birthday: data.user.birthday ? new Date(data.user.birthday).toLocaleDateString() : 'Not specified',
+        });
+      } catch (err) {
+        console.error('Error fetching profile:', err);
+        setError('Failed to load profile');
+      } finally {
+        setIsLoading(false);
+      }
+    };
+    
+    fetchUserProfile();
+  }, [user]);
+  
+  const handleLogout = () => {
+    logout();
+    navigation.replace('Login');
   };
-
+  
+  if (isLoading) {
+    return (
+      <View style={styles.loadingContainer}>
+        <ActivityIndicator size="large" color="#E50914" />
+        <Text style={styles.loadingText}>Loading profile...</Text>
+      </View>
+    );
+  }
+  
+  if (error) {
+    return (
+      <View style={styles.errorContainer}>
+        <IconFeather name="alert-circle" size={50} color="#E50914" />
+        <Text style={styles.errorText}>{error}</Text>
+      </View>
+    );
+  }
+  
   return (
     <View style={styles.profileContainer}>
       {/* Profile Header */}
@@ -493,10 +665,10 @@ const ProfileScreen = () => {
           style={styles.avatar}
         />
         <View style={styles.profileInfo}>
-          <Text style={styles.profileName}>{userInfo.name}</Text>
-          <Text style={styles.profileEmail}>{userInfo.email}</Text>
+          <Text style={styles.profileName}>{userInfo.email}</Text>
+          <Text style={styles.profileEmail}>Gender: {userInfo.gender}</Text>
           <Text style={styles.profilePlan}>{userInfo.plan}</Text>
-          <Text style={styles.profileDate}>{userInfo.joinDate}</Text>
+          <Text style={styles.profileDate}>Birthday: {userInfo.birthday}</Text>
         </View>
       </View>
 
@@ -510,7 +682,10 @@ const ProfileScreen = () => {
           <Icon name="help-circle-outline" size={24} color="white" />
           <Text style={styles.actionButtonText}>Help</Text>
         </TouchableOpacity>
-        <TouchableOpacity style={styles.actionButton}>
+        <TouchableOpacity 
+          style={styles.actionButton}
+          onPress={handleLogout}
+        >
           <Icon name="log-out-outline" size={24} color="white" />
           <Text style={styles.actionButtonText}>Sign Out</Text>
         </TouchableOpacity>
@@ -888,31 +1063,59 @@ const HomeTabs = () => {
 
 // Add LoginScreen component
 const LoginScreen = ({ navigation }) => {
+  const { login } = useContext(AuthContext);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-
-  const handleLogin = () => {
+  
+  const handleLogin = async () => {
     if (!email || !password) {
-      alert('Please fill in all fields');
+      setError('Email and password are required');
       return;
     }
-
+    
     setIsLoading(true);
-    // Simulate API call
-    setTimeout(() => {
-      setIsLoading(false);
+    setError('');
+    
+    try {
+      const response = await fetch('http://localhost:3001/api/auth/login', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ email, password }),
+      });
+      
+      const data = await response.json();
+      
+      if (!response.ok) {
+        throw new Error(data.error || 'Login failed');
+      }
+      
+      // Store authentication data
+      login(data.token, data.userId);
       navigation.replace('Main');
-    }, 1500);
+      
+    } catch (err) {
+      console.error('Login error:', err);
+      setError(err.message || 'Login failed');
+    } finally {
+      setIsLoading(false);
+    }
   };
-
+  
   return (
     <View style={styles.loginContainer}>
       <View style={styles.logoContainer}>
         <Text style={styles.logoText}>NETFLIX</Text>
       </View>
-
+      
       <View style={styles.formContainer}>
+        {error ? (
+          <Text style={styles.errorText}>{error}</Text>
+        ) : null}
+        
         <TextInput
           style={styles.input}
           placeholder="Email"
@@ -922,7 +1125,7 @@ const LoginScreen = ({ navigation }) => {
           autoCapitalize="none"
           keyboardType="email-address"
         />
-
+        
         <TextInput
           style={styles.input}
           placeholder="Password"
@@ -931,7 +1134,7 @@ const LoginScreen = ({ navigation }) => {
           onChangeText={setPassword}
           secureTextEntry
         />
-
+        
         <TouchableOpacity 
           style={[styles.loginButton, isLoading && styles.loginButtonDisabled]}
           onPress={handleLogin}
@@ -941,15 +1144,301 @@ const LoginScreen = ({ navigation }) => {
             {isLoading ? 'Signing in...' : 'Sign In'}
           </Text>
         </TouchableOpacity>
-
+        
         <TouchableOpacity style={styles.forgotPassword}>
           <Text style={styles.forgotPasswordText}>Forgot Password?</Text>
         </TouchableOpacity>
-
+        
         <View style={styles.signupContainer}>
           <Text style={styles.signupText}>New to Netflix? </Text>
-          <TouchableOpacity>
+          <TouchableOpacity onPress={() => navigation.navigate('Signup')}>
             <Text style={styles.signupLink}>Sign up now</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    </View>
+  );
+};
+
+// Add this new context for authentication
+const AuthContext = React.createContext();
+
+export const AuthProvider = ({ children }) => {
+  const [user, setUser] = useState(null);
+  const [isLoading, setIsLoading] = useState(true);
+  
+  useEffect(() => {
+    // Check if token exists in localStorage
+    const token = localStorage.getItem('authToken');
+    const userId = localStorage.getItem('userId');
+    
+    if (token && userId) {
+      setUser({ token, userId });
+    }
+    setIsLoading(false);
+  }, []);
+  
+  const login = (token, userId) => {
+    localStorage.setItem('authToken', token);
+    localStorage.setItem('userId', userId);
+    setUser({ token, userId });
+  };
+  
+  const logout = () => {
+    localStorage.removeItem('authToken');
+    localStorage.removeItem('userId');
+    setUser(null);
+  };
+  
+  return (
+    <AuthContext.Provider value={{ user, login, logout, isLoading }}>
+      {children}
+    </AuthContext.Provider>
+  );
+};
+
+// Add this gender selection component
+const GenderSelector = ({ selectedGender, onSelect }) => {
+  const [modalVisible, setModalVisible] = useState(false);
+  const genderOptions = ['male', 'female', 'other'];
+  
+  return (
+    <View>
+      <TouchableOpacity 
+        style={styles.input} 
+        onPress={() => setModalVisible(true)}
+      >
+        <Text style={selectedGender ? styles.inputText : styles.inputPlaceholder}>
+          {selectedGender || 'Select Gender (optional)'}
+        </Text>
+        <Icon name="chevron-down" size={20} color="#666" />
+      </TouchableOpacity>
+      
+      <Modal
+        transparent={true}
+        visible={modalVisible}
+        animationType="slide"
+        onRequestClose={() => setModalVisible(false)}
+      >
+        <TouchableOpacity 
+          style={styles.modalOverlay}
+          activeOpacity={1}
+          onPress={() => setModalVisible(false)}
+        >
+          <View style={styles.genderModalContent}>
+            <Text style={styles.genderModalTitle}>Select Gender</Text>
+            
+            {genderOptions.map((option) => (
+              <TouchableOpacity
+                key={option}
+                style={[
+                  styles.genderOption,
+                  selectedGender === option && styles.genderOptionSelected
+                ]}
+                onPress={() => {
+                  onSelect(option);
+                  setModalVisible(false);
+                }}
+              >
+                <Text style={[
+                  styles.genderOptionText,
+                  selectedGender === option && styles.genderOptionTextSelected
+                ]}>
+                  {option.charAt(0).toUpperCase() + option.slice(1)}
+                </Text>
+              </TouchableOpacity>
+            ))}
+            
+            <TouchableOpacity
+              style={styles.cancelButton}
+              onPress={() => setModalVisible(false)}
+            >
+              <Text style={styles.cancelButtonText}>Cancel</Text>
+            </TouchableOpacity>
+          </View>
+        </TouchableOpacity>
+      </Modal>
+    </View>
+  );
+};
+
+// Add this DatePicker component to your App.js
+const DatePicker = ({ selectedDate, onSelect, placeholder }) => {
+  const [showPicker, setShowPicker] = useState(false);
+  
+  // Format date for display
+  const formatDate = (date) => {
+    if (!date) return '';
+    return new Date(date).toISOString().split('T')[0]; // YYYY-MM-DD format
+  };
+  
+  return (
+    <View>
+      <TouchableOpacity 
+        style={styles.input}
+        onPress={() => setShowPicker(true)}
+      >
+        <Text style={selectedDate ? styles.inputText : styles.inputPlaceholder}>
+          {selectedDate ? formatDate(selectedDate) : placeholder || 'Select Date (optional)'}
+        </Text>
+        <Icon name="calendar" size={20} color="#666" />
+      </TouchableOpacity>
+      
+      {showPicker && (
+        <View style={styles.datePickerContainer}>
+          <View style={styles.datePickerHeader}>
+            <Text style={styles.datePickerTitle}>Select Birthday</Text>
+          </View>
+          
+          {/* Simple date picker for web */}
+          <input
+            type="date"
+            value={selectedDate ? formatDate(selectedDate) : ''}
+            onChange={(e) => {
+              onSelect(e.target.value);
+              setTimeout(() => setShowPicker(false), 300); // Close after selection
+            }}
+            style={{
+              backgroundColor: '#333',
+              color: 'white',
+              padding: 10,
+              borderRadius: 5,
+              border: 'none',
+              fontSize: 16,
+              width: '100%'
+            }}
+          />
+          
+          <View style={styles.datePickerFooter}>
+            <TouchableOpacity 
+              style={styles.datePickerCancel}
+              onPress={() => setShowPicker(false)}
+            >
+              <Text style={styles.datePickerCancelText}>Cancel</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      )}
+    </View>
+  );
+};
+
+// Now update the SignupScreen component
+const SignupScreen = ({ navigation }) => {
+  const { login } = useContext(AuthContext);
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [gender, setGender] = useState('');
+  const [birthday, setBirthday] = useState('');
+  const [error, setError] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
+  
+  const handleSignup = async () => {
+    if (password !== confirmPassword) {
+      setError('Passwords do not match');
+      return;
+    }
+    
+    if (!email || !password) {
+      setError('Email and password are required');
+      return;
+    }
+    
+    setIsLoading(true);
+    setError('');
+    
+    try {
+      const response = await fetch('http://localhost:3001/api/auth/signup', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ email, password, gender, birthday }),
+      });
+      
+      const data = await response.json();
+      
+      if (!response.ok) {
+        throw new Error(data.error || 'Signup failed');
+      }
+      
+      // Login the user with the returned token
+      login(data.token, data.userId);
+      navigation.replace('Main');
+      
+    } catch (err) {
+      console.error('Signup error:', err);
+      setError(err.message || 'Failed to create account');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+  
+  return (
+    <View style={styles.loginContainer}>
+      <View style={styles.logoContainer}>
+        <Text style={styles.logoText}>NETFLIX</Text>
+      </View>
+      
+      <View style={styles.formContainer}>
+        {error ? (
+          <Text style={styles.errorText}>{error}</Text>
+        ) : null}
+        
+        <TextInput
+          style={styles.input}
+          placeholder="Email"
+          placeholderTextColor="#666"
+          value={email}
+          onChangeText={setEmail}
+          autoCapitalize="none"
+          keyboardType="email-address"
+        />
+        
+        <TextInput
+          style={styles.input}
+          placeholder="Password"
+          placeholderTextColor="#666"
+          value={password}
+          onChangeText={setPassword}
+          secureTextEntry
+        />
+        
+        <TextInput
+          style={styles.input}
+          placeholder="Confirm Password"
+          placeholderTextColor="#666"
+          value={confirmPassword}
+          onChangeText={setConfirmPassword}
+          secureTextEntry
+        />
+        
+        <GenderSelector 
+          selectedGender={gender} 
+          onSelect={setGender} 
+        />
+        
+        <DatePicker
+          selectedDate={birthday}
+          onSelect={setBirthday}
+          placeholder="Birthday (optional)"
+        />
+        
+        <TouchableOpacity 
+          style={[styles.loginButton, isLoading && styles.loginButtonDisabled]}
+          onPress={handleSignup}
+          disabled={isLoading}
+        >
+          <Text style={styles.loginButtonText}>
+            {isLoading ? 'Creating Account...' : 'Sign Up'}
+          </Text>
+        </TouchableOpacity>
+        
+        <View style={styles.signupContainer}>
+          <Text style={styles.signupText}>Already have an account? </Text>
+          <TouchableOpacity onPress={() => navigation.navigate('Login')}>
+            <Text style={styles.signupLink}>Login</Text>
           </TouchableOpacity>
         </View>
       </View>
@@ -960,24 +1449,31 @@ const LoginScreen = ({ navigation }) => {
 // Update App component to include LoginScreen
 const App = () => {
   return (
-    <MovieProvider>
-      <WatchListProvider>
-        <NavigationContainer>
-          <Stack.Navigator initialRouteName="Login">
-            <Stack.Screen 
-              name="Login" 
-              component={LoginScreen}
-              options={{ headerShown: false }}
-            />
-            <Stack.Screen 
-              name="Main" 
-              component={HomeTabs} 
-              options={{ headerShown: false }}
-            />
-          </Stack.Navigator>
-        </NavigationContainer>
-      </WatchListProvider>
-    </MovieProvider>
+    <AuthProvider>
+      <MovieProvider>
+        <WatchListProvider>
+          <NavigationContainer>
+            <Stack.Navigator initialRouteName="Login">
+              <Stack.Screen 
+                name="Login" 
+                component={LoginScreen}
+                options={{ headerShown: false }}
+              />
+              <Stack.Screen 
+                name="Signup" 
+                component={SignupScreen}
+                options={{ headerShown: false }}
+              />
+              <Stack.Screen 
+                name="Main" 
+                component={HomeTabs} 
+                options={{ headerShown: false }}
+              />
+            </Stack.Navigator>
+          </NavigationContainer>
+        </WatchListProvider>
+      </MovieProvider>
+    </AuthProvider>
   );
 };
 
@@ -1114,27 +1610,43 @@ const styles = StyleSheet.create({
     padding: 5,
   },
   resultsList: {
-    paddingVertical: 10,
+    padding: 7,
+    width: '100%',
+  },
+  row: {
+    flex: 1,
+    justifyContent: 'space-between',
+    marginVertical: 6,
+    width: '100%',
   },
   showItem: {
-    flex: 1,
-    margin: 5,
+    width: '29%',
+    marginHorizontal: 2,
+    marginVertical: 5,
     alignItems: 'center',
+  },
+  showImageContainer: {
+    width: '100%',
+    aspectRatio: 2/3,
+    marginBottom: 4,
+    borderRadius: 4,
+    overflow: 'hidden',
+    backgroundColor: '#333',
   },
   showImage: {
     width: '100%',
-    height: 150,
-    borderRadius: 8,
+    height: '100%',
   },
   showTitle: {
     color: 'white',
-    marginTop: 5,
-    fontSize: 14,
+    marginTop: 3,
+    fontSize: 12,
     textAlign: 'center',
+    width: '100%',
   },
   showYear: {
     color: '#999',
-    fontSize: 12,
+    fontSize: 10,
     textAlign: 'center',
   },
   noResults: {
@@ -1189,9 +1701,9 @@ const styles = StyleSheet.create({
   },
   playButtonText: {
     color: '#000',
+    marginLeft: 5,
     fontSize: 16,
     fontWeight: 'bold',
-    marginLeft: 5,
   },
   myListButton: {
     flexDirection: 'row',
@@ -1203,9 +1715,9 @@ const styles = StyleSheet.create({
   },
   myListButtonText: {
     color: '#fff',
+    marginLeft: 5,
     fontSize: 16,
     fontWeight: 'bold',
-    marginLeft: 5,
   },
   moviesSection: {
     marginVertical: 20,
@@ -1645,6 +2157,101 @@ const styles = StyleSheet.create({
     color: '#666',
     fontSize: 16,
     textAlign: 'center',
+  },
+  inputText: {
+    color: 'white',
+    flex: 1,
+  },
+  inputPlaceholder: {
+    color: '#666',
+    flex: 1,
+  },
+  genderModalContent: {
+    backgroundColor: '#222',
+    borderRadius: 10,
+    padding: 20,
+    width: '80%',
+    maxWidth: 400,
+    alignSelf: 'center',
+  },
+  genderModalTitle: {
+    color: 'white',
+    fontSize: 18,
+    fontWeight: 'bold',
+    marginBottom: 20,
+    textAlign: 'center',
+  },
+  genderOption: {
+    paddingVertical: 15,
+    borderBottomWidth: 1,
+    borderBottomColor: '#333',
+  },
+  genderOptionSelected: {
+    backgroundColor: 'rgba(229, 9, 20, 0.2)',
+  },
+  genderOptionText: {
+    color: 'white',
+    fontSize: 16,
+    textAlign: 'center',
+  },
+  genderOptionTextSelected: {
+    color: '#E50914',
+    fontWeight: 'bold',
+  },
+  cancelButton: {
+    marginTop: 20,
+    paddingVertical: 12,
+    backgroundColor: '#333',
+    borderRadius: 5,
+  },
+  cancelButtonText: {
+    color: 'white',
+    fontSize: 16,
+    textAlign: 'center',
+  },
+  datePickerContainer: {
+    backgroundColor: '#222',
+    borderRadius: 10,
+    padding: 15,
+    marginBottom: 15,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+    elevation: 5,
+  },
+  datePickerHeader: {
+    marginBottom: 15,
+  },
+  datePickerTitle: {
+    color: 'white',
+    fontSize: 18,
+    fontWeight: 'bold',
+    textAlign: 'center',
+  },
+  datePickerFooter: {
+    marginTop: 15,
+    alignItems: 'center',
+  },
+  datePickerCancel: {
+    padding: 10,
+  },
+  datePickerCancelText: {
+    color: '#E50914',
+    fontSize: 16,
+  },
+  detailsImageContainer: {
+    width: '100%',
+    height: 250,
+    marginBottom: 15,
+    borderRadius: 8,
+    overflow: 'hidden',
+    backgroundColor: '#333',
+  },
+  detailsImage: {
+    width: '100%',
+    height: '100%',
+    resizeMode: 'cover',
   },
 });
 
