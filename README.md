@@ -61,7 +61,7 @@ We used a hybrid AI recommendation approach:
 - **Frontend**: React.js (prototype UI for testing features)
 - **Backend**: Node.js (API server)
 - **Database**: SQL database hosted on **AWS RDS**
-- **AI Models**: Python (Scikit-Learn / TensorFlow)
+- **AI Models**: Python (Scikit-Learn / Sentence-transformers)
 - **Cloud Infra**: AWS (RDS, EC2 for model training/deployment)
 
 ---
