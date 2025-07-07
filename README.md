@@ -127,5 +127,5 @@ Made with ❤️ by a passionate team of developers!
 
 ## 📬 Contact
 
-Have questions or want to collaborate? Reach out via [linkedin](https://www.linkedin.com/in/diogo-gsilva/)
- or [email](diogoemail97@gmail.com)
+Have questions or want to collaborate? Reach out via [linkedin](https://www.linkedin.com/in/paulosoaresdev/)
+ or [email](dev.paulo.soares@gmail.com)
